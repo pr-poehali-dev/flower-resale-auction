@@ -1,0 +1,31 @@
+{
+  "tests": [
+    {
+      "name": "Register new user",
+      "method": "POST",
+      "path": "/?action=register",
+      "body": {"name": "Тест Юзер", "phone": "+79991234500", "password": "test123"},
+      "expectedStatus": 200,
+      "bodyMatcher": "partial",
+      "expectedBody": {"token": ""}
+    },
+    {
+      "name": "Login existing user",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"phone": "+79991234500", "password": "test123"},
+      "expectedStatus": 200,
+      "bodyMatcher": "partial",
+      "expectedBody": {"token": ""}
+    },
+    {
+      "name": "Wrong password",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"phone": "+79991234500", "password": "wrongpass"},
+      "expectedStatus": 401,
+      "bodyMatcher": "partial",
+      "expectedBody": {"error": ""}
+    }
+  ]
+}

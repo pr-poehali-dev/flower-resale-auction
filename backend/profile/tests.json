@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get orders (unauth)",
+      "method": "GET",
+      "path": "/?action=orders",
+      "expectedStatus": 401,
+      "expectedBody": {"error": ""},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
