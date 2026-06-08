@@ -6,7 +6,18 @@ const URLS = {
   escrow: "https://functions.poehali.dev/e88eb917-34d3-4efd-b11e-fdea4f137322",
   oauth: "https://functions.poehali.dev/385e4ac7-d359-47f0-bbde-f564f4a774ac",
   vkidSdk: "https://functions.poehali.dev/04a40261-2f46-44d9-9585-2ca604773192",
+  cities: "https://functions.poehali.dev/926ae37d-af28-4725-9ea2-1fb3bad5cefc",
 };
+
+export async function fetchAllCities(): Promise<string[]> {
+  try {
+    const res = await fetch(`${URLS.cities}/`);
+    const data = await res.json();
+    return Array.isArray(data.cities) ? data.cities : [];
+  } catch {
+    return [];
+  }
+}
 
 function getToken(): string {
   return localStorage.getItem("ff_token") || "";
