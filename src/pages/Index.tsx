@@ -281,13 +281,17 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
 
 
-  // VK ID OneTap — инициализируем когда SDK загружен
+  // VK ID OneTap — ждём загрузки SDK
   useEffect(() => {
+    let rendered = false;
+
     const init = () => {
+      if (rendered) return;
       const container = vkContainerRef.current;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const VKID = (window as any).VKIDSDK;
       if (!container || !VKID) return;
+      rendered = true;
 
       VKID.Config.init({
         app: 54627734,
@@ -313,10 +317,19 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
         });
     };
 
-    // SDK мог загрузиться асинхронно — пробуем сразу и через 1 сек
-    init();
-    const t = setTimeout(init, 1000);
-    return () => clearTimeout(t);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((window as any).__vkidReady) {
+      init(); // SDK уже загружен
+    } else {
+      window.addEventListener("vkid-ready", init);
+    }
+    // Fallback — пробуем каждые 500ms до 5 сек
+    const attempts = [500, 1000, 2000, 3000, 5000].map(ms => setTimeout(init, ms));
+
+    return () => {
+      window.removeEventListener("vkid-ready", init);
+      attempts.forEach(clearTimeout);
+    };
   }, [finishOAuth]);
 
   const submit = async () => {
