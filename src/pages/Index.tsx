@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi } from "@/lib/api";
 
@@ -223,7 +223,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [needCity, setNeedCity] = useState(false);
   const [pendingToken, setPendingToken] = useState<string | null>(null);
-  const vkContainerRef = useRef<HTMLDivElement>(null);
+
 
 
   const citySuggestions = cityInput.length > 0
@@ -278,44 +278,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     }
   }, [finishOAuth]);
 
-  // Инициализация VK ID OneTap виджета
-  useEffect(() => {
-    const container = vkContainerRef.current;
-    if (!container) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const VKID = (window as any).VKIDSDK;
-    if (!VKID) return;
 
-    VKID.Config.init({
-      app: 54627734,
-      redirectUrl: "https://flowerflip.ru",
-      responseMode: VKID.ConfigResponseMode.Callback,
-      source: VKID.ConfigSource.LOWCODE,
-      scope: "",
-    });
-
-    const oneTap = new VKID.OneTap();
-    oneTap.render({ container, showAlternativeLogin: false })
-      .on(VKID.WidgetEvents.ERROR, () => setError("Ошибка VK ID"))
-      .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: { code: string; device_id: string }) => {
-        setOauthLoading("vk");
-        const { code, device_id } = payload;
-        VKID.Auth.exchangeCode(code, device_id)
-          .then(async (data: { access_token?: string; error?: string }) => {
-            if (data.error || !data.access_token) {
-              setError("Ошибка VK: " + (data.error || "нет токена"));
-              setOauthLoading(null);
-              return;
-            }
-            const r = await oauthApi.vkidCallback(code, device_id);
-            if (!r.ok) { setError(r.data.error || "Ошибка VK"); setOauthLoading(null); return; }
-            await finishOAuth(r.data.token, r.data.is_new);
-          })
-          .catch(() => { setError("Ошибка VK"); setOauthLoading(null); });
-      });
-
-    return () => { try { oneTap.close?.(); } catch { /* ignore */ } };
-  }, [finishOAuth]);
 
   const submit = async () => {
     setError(""); setLoading(true);
@@ -328,6 +291,17 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   };
 
 
+
+  const loginWithVk = () => {
+    const params = new URLSearchParams({
+      client_id: "54627734",
+      redirect_uri: window.location.origin,
+      response_type: "code",
+      state: "vk",
+      scope: "email",
+    });
+    window.location.href = `https://oauth.vk.ru/authorize?${params}`;
+  };
 
   const loginWithGoogle = async () => {
     setOauthLoading("google");
@@ -420,22 +394,15 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
         {/* OAuth блок */}
         <div className="glass-strong rounded-3xl p-5 mb-4">
 
-          {/* VK ID OneTap виджет */}
-          <div ref={vkContainerRef} className="mb-2 w-full" style={{ minHeight: 44 }} />
-
-          {/* Google кнопка */}
-          <button onClick={loginWithGoogle} disabled={!!oauthLoading}
-            className="w-full flex items-center justify-center gap-3 glass rounded-2xl py-3 px-4 transition-all hover:scale-[1.02] active:scale-[0.98] group disabled:opacity-50">
-            <div className="w-6 h-6 flex items-center justify-center bg-white rounded-md flex-shrink-0">
-              <svg width="16" height="16" viewBox="0 0 24 24">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-              </svg>
-            </div>
-            <span className="text-white/70 text-sm font-medium group-hover:text-white transition-colors">
-              {oauthLoading === "google" ? "Перенаправляем..." : "Войти через Google"}
+          {/* VK кнопка */}
+          <button onClick={loginWithVk} disabled={!!oauthLoading}
+            className="w-full flex items-center justify-center gap-3 rounded-2xl py-3 px-4 mb-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+            style={{ background: "#0077FF" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="white" className="flex-shrink-0">
+              <path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.862-.525-2.049-1.714-1.033-1.01-1.49-.964-1.744-.964-.355 0-.457.102-.457.593v1.568c0 .42-.133.67-1.235.67-1.82 0-3.844-1.1-5.27-3.165C5.157 10.7 4.673 8.518 4.673 7.97c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.678.864 2.49 2.303 4.675 2.9 4.675.22 0 .322-.102.322-.66V9.75c-.068-1.186-.695-1.287-.695-1.71 0-.203.169-.407.44-.407h2.744c.373 0 .508.203.508.643v3.452c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.57 2.151-3.57.119-.254.322-.491.762-.491h1.744c.525 0 .643.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .779.186.254.796.779 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/>
+            </svg>
+            <span className="text-white text-sm font-semibold">
+              {oauthLoading === "vk" ? "Подождите..." : "Войти через ВКонтакте"}
             </span>
           </button>
 
