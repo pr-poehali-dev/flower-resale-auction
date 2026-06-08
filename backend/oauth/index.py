@@ -1,6 +1,6 @@
 """
-OAuth авторизация: VK, Google, Telegram
-Схема: фронтенд редиректит на провайдера → провайдер возвращает code →
+OAuth авторизация: VK ID SDK, Google, Telegram
+Схема: VK ID OneTap → exchangeCode на клиенте → access_token → бэкенд → профиль VK API
 фронтенд передаёт code сюда → получаем токен, достаём профиль, создаём/находим юзера
 """
 import json
