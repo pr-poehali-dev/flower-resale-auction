@@ -122,7 +122,7 @@ def handler(event: dict, context) -> dict:
                 "state": state,
                 "scope": "email",
             })
-            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"url": f"https://id.vk.com/oauth2/auth?{params}"})}
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"url": f"https://oauth.vk.ru/authorize?{params}"})}
 
         # ── VK ID OAuth — обменять code на токен ──
         if action == "vk_callback":
@@ -133,9 +133,9 @@ def handler(event: dict, context) -> dict:
             if not app_id or not app_secret:
                 return {"statusCode": 503, "headers": CORS, "body": json.dumps({"error": "VK не настроен."})}
 
-            # Обмен code на access_token через VK ID
+            # Обмен code на access_token через oauth.vk.ru (новый VK ID)
             token_req = urllib.request.Request(
-                "https://id.vk.com/oauth2/token",
+                "https://oauth.vk.ru/access_token",
                 data=urllib.parse.urlencode({
                     "grant_type": "authorization_code",
                     "code": code,
@@ -156,7 +156,7 @@ def handler(event: dict, context) -> dict:
 
             # Получаем профиль через VK ID userinfo
             userinfo_req = urllib.request.Request(
-                "https://id.vk.com/oauth2/user_info",
+                "https://oauth.vk.ru/user_info",
                 data=urllib.parse.urlencode({"access_token": vk_access_token}).encode(),
                 method="POST",
                 headers={"Content-Type": "application/x-www-form-urlencoded"}
