@@ -209,12 +209,6 @@ function InstallBanner() {
   );
 }
 
-/* ─── VK ID SDK TYPES ────────────────────────────────────── */
-interface VKIDPayload { code: string; device_id: string; }
-interface VKIDTokenData { access_token: string; user_id?: string; }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type VKIDSDKType = any;
-
 /* ─── AUTH SCREEN ────────────────────────────────────────── */
 function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -227,47 +221,60 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [needCity, setNeedCity] = useState(false);
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
 
 
   const citySuggestions = cityInput.length > 0
     ? CITIES.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 5)
     : [];
 
-  // Финализация после любого OAuth: сохранить токен и загрузить профиль
-  const finishOAuth = useCallback(async (token: string) => {
+  // Финализация после OAuth: если новый пользователь — показываем выбор города
+  const finishOAuth = useCallback(async (token: string, isNew?: boolean) => {
     localStorage.setItem("ff_token", token);
+    setOauthLoading(null);
+    if (isNew) {
+      setPendingToken(token);
+      setNeedCity(true);
+      return;
+    }
     const me = await authApi.me();
     if (me.ok) onAuth(me.data.user, token);
     else setError("Не удалось загрузить профиль");
-    setOauthLoading(null);
   }, [onAuth]);
 
-  // VK OAuth redirect callback (code приходит в URL после редиректа от VK)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    const provider = params.get("provider");
-    if (!code || provider !== "vk") return;
-    window.history.replaceState({}, "", "/");
-    setOauthLoading("vk");
-    oauthApi.vkCallback(code).then(async r => {
-      if (!r.ok) { setError(r.data.error || "Ошибка VK"); setOauthLoading(null); return; }
-      await finishOAuth(r.data.token);
-    });
-  }, [finishOAuth]);
+  // Сохраняем город и входим
+  const saveCity = useCallback(async (selectedCity: string) => {
+    if (!pendingToken) return;
+    if (selectedCity) await authApi.update({ city: selectedCity });
+    const me = await authApi.me();
+    if (me.ok) onAuth(me.data.user, pendingToken);
+    else setError("Не удалось загрузить профиль");
+    setNeedCity(false);
+    setPendingToken(null);
+  }, [pendingToken, onAuth]);
 
-  // Google OAuth redirect callback
+  // OAuth callback — VK возвращает ?code=...&state=vk, Google — ?code=...&state=google
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    const provider = params.get("provider");
-    if (!code || provider !== "google") return;
+    const state = params.get("state"); // "vk" или "google"
+    if (!code || !state) return;
     window.history.replaceState({}, "", "/");
-    setOauthLoading("google");
-    oauthApi.googleCallback(code).then(async r => {
-      if (!r.ok) { setError(r.data.error || "Ошибка Google"); setOauthLoading(null); return; }
-      await finishOAuth(r.data.token);
-    });
+
+    if (state === "vk") {
+      setOauthLoading("vk");
+      oauthApi.vkCallback(code).then(async r => {
+        if (!r.ok) { setError(r.data.error || "Ошибка VK"); setOauthLoading(null); return; }
+        await finishOAuth(r.data.token, r.data.is_new);
+      });
+    } else if (state === "google") {
+      setOauthLoading("google");
+      oauthApi.googleCallback(code).then(async r => {
+        if (!r.ok) { setError(r.data.error || "Ошибка Google"); setOauthLoading(null); return; }
+        await finishOAuth(r.data.token, r.data.is_new);
+      });
+    }
   }, [finishOAuth]);
 
   const submit = async () => {
@@ -304,6 +311,55 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
         </p>
         <div className="mt-4 flex justify-center">
           <div className="animate-spin rounded-full w-8 h-8 border-2 border-pink-400 border-t-transparent" />
+        </div>
+      </div>
+    </div>
+  );
+
+  // Новый пользователь через VK/Google — просим выбрать город
+  if (needCity) return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "hsl(var(--background))" }}>
+      <div className="w-full max-w-sm animate-fade-in-up">
+        <div className="text-center mb-8">
+          <div className="text-5xl mb-4 animate-float" style={{ display: "inline-block" }}>📍</div>
+          <h2 className="font-oswald text-3xl font-bold text-white mb-2">Ваш город?</h2>
+          <p className="text-white/40 text-sm">Это поможет находить букеты рядом с вами</p>
+        </div>
+        <div className="glass-strong rounded-3xl p-5 space-y-3">
+          <div className="relative">
+            <div className="glass rounded-xl px-4 py-3 flex items-center gap-2">
+              <Icon name="MapPin" size={16} className="text-white/30 flex-shrink-0" />
+              <input
+                value={cityInput}
+                onChange={e => { setCityInput(e.target.value); setCity(""); setShowCitySuggest(true); }}
+                onFocus={() => setShowCitySuggest(true)}
+                onBlur={() => setTimeout(() => setShowCitySuggest(false), 150)}
+                className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none"
+                placeholder="Начните вводить город..."
+                autoFocus
+              />
+              {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
+            </div>
+            {showCitySuggest && citySuggestions.length > 0 && (
+              <div className="absolute z-20 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.1)" }}>
+                {citySuggestions.map(c => (
+                  <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/5 transition-colors">
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button onClick={() => saveCity(city || cityInput)}
+            className="btn-gradient w-full rounded-2xl py-4 font-oswald text-lg tracking-wide"
+            disabled={!city && !cityInput}>
+            {city || cityInput ? "ПРОДОЛЖИТЬ" : "ПРОПУСТИТЬ"}
+          </button>
+          <button onClick={() => saveCity("")}
+            className="w-full text-white/30 text-sm py-2 hover:text-white/50 transition-colors">
+            Пропустить
+          </button>
         </div>
       </div>
     </div>

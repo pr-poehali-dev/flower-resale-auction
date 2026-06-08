@@ -123,21 +123,23 @@ export const escrowApi = {
 };
 
 // OAUTH
-const getRedirectUri = (provider: string) =>
-  `${window.location.origin}/?provider=${provider}`;
+// redirect_uri = просто origin без параметров (требование VK Security)
+// провайдера передаём через state, он вернётся в URL как ?state=vk
+const getRedirectUri = () => window.location.origin;
 
 export const oauthApi = {
-  // VK OAuth redirect flow (надёжный способ)
-  getVkUrl: () => req(`${URLS.oauth}/?action=vk_url&redirect_uri=${encodeURIComponent(getRedirectUri("vk"))}`),
+  getVkUrl: () => req(`${URLS.oauth}/?action=vk_url&redirect_uri=${encodeURIComponent(getRedirectUri())}&state=vk`),
   vkCallback: (code: string) =>
     req(`${URLS.oauth}/?action=vk_callback`, {
       method: "POST",
-      body: JSON.stringify({ action: "vk_callback", code, redirect_uri: getRedirectUri("vk") }),
+      body: JSON.stringify({ action: "vk_callback", code, redirect_uri: getRedirectUri() }),
     }),
-  // Google OAuth redirect flow
-  getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri("google"))}`),
+  getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri())}&state=google`),
   googleCallback: (code: string) =>
-    req(`${URLS.oauth}/?action=google_callback`, { method: "POST", body: JSON.stringify({ action: "google_callback", code, redirect_uri: getRedirectUri("google") }) }),
+    req(`${URLS.oauth}/?action=google_callback`, {
+      method: "POST",
+      body: JSON.stringify({ action: "google_callback", code, redirect_uri: getRedirectUri() }),
+    }),
   telegramCallback: (tgData: Record<string, string>) =>
     req(`${URLS.oauth}/?action=telegram_callback`, { method: "POST", body: JSON.stringify({ action: "telegram_callback", telegram_data: tgData }) }),
 };

@@ -38,11 +38,11 @@ def http_post(url, data):
         return json.loads(r.read())
 
 def upsert_oauth_user(conn, provider: str, provider_id: str, name: str, avatar_url: str = None, city: str = None):
-    """Находит или создаёт пользователя по OAuth, возвращает user_id и token"""
+    """Находит или создаёт пользователя по OAuth. Возвращает (user_id, token, is_new)"""
+    is_new = False
     with conn.cursor() as cur:
-        # Ищем по provider + provider_id
         cur.execute(
-            f"SELECT u.id, u.name FROM {SCHEMA}.users u "
+            f"SELECT u.id FROM {SCHEMA}.users u "
             f"WHERE u.oauth_provider = %s AND u.oauth_id = %s",
             (provider, provider_id)
         )
@@ -50,11 +50,10 @@ def upsert_oauth_user(conn, provider: str, provider_id: str, name: str, avatar_u
 
         if row:
             user_id = row[0]
-            # Обновляем аватар если есть
             if avatar_url:
                 cur.execute(f"UPDATE {SCHEMA}.users SET avatar_url = %s WHERE id = %s", (avatar_url, user_id))
         else:
-            # Создаём нового пользователя
+            is_new = True
             fake_phone = f"+oauth_{provider}_{provider_id}"
             fake_hash = hashlib.sha256(f"oauth_{provider}_{provider_id}".encode()).hexdigest()
             cur.execute(
@@ -64,14 +63,10 @@ def upsert_oauth_user(conn, provider: str, provider_id: str, name: str, avatar_u
             )
             user_id = cur.fetchone()[0]
 
-        # Создаём сессию
         tok = make_token()
-        cur.execute(
-            f"INSERT INTO {SCHEMA}.sessions (user_id, token) VALUES (%s, %s)",
-            (user_id, tok)
-        )
+        cur.execute(f"INSERT INTO {SCHEMA}.sessions (user_id, token) VALUES (%s, %s)", (user_id, tok))
     conn.commit()
-    return user_id, tok
+    return user_id, tok, is_new
 
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
@@ -107,15 +102,16 @@ def handler(event: dict, context) -> dict:
             city_data = user_info.get("city", {})
             city = city_data.get("title") if isinstance(city_data, dict) else None
 
-            user_id, tok = upsert_oauth_user(conn, "vk", str(vk_user_id), name, avatar, city)
+            user_id, tok, is_new = upsert_oauth_user(conn, "vk", str(vk_user_id), name, avatar, city)
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({
-                "token": tok, "user": {"id": user_id, "name": name}
+                "token": tok, "is_new": is_new, "user": {"id": user_id, "name": name}
             })}
 
         # ── VK OAuth redirect — получить URL для редиректа ──
         if action == "vk_url":
             app_id = os.environ.get("VK_APP_ID", "")
             redirect_uri = qs.get("redirect_uri", "")
+            state = qs.get("state", "vk")
             if not app_id:
                 return {"statusCode": 503, "headers": CORS, "body": json.dumps({"error": "VK не настроен. Добавьте VK_APP_ID в секреты."})}
             params = urllib.parse.urlencode({
@@ -123,6 +119,7 @@ def handler(event: dict, context) -> dict:
                 "redirect_uri": redirect_uri,
                 "scope": "email",
                 "response_type": "code",
+                "state": state,
                 "v": "5.131",
                 "display": "page",
             })
@@ -148,12 +145,12 @@ def handler(event: dict, context) -> dict:
                 f"https://api.vk.com/method/users.get?user_ids={vk_user_id}"
                 f"&fields=photo_200,city&access_token={vk_token}&v=5.131"
             )
-            user_info = profile["response"][0]
-            name = f"{user_info.get('first_name','')} {user_info.get('last_name','')}".strip()
+            user_info = profile.get("response", [{}])[0]
+            name = f"{user_info.get('first_name','')} {user_info.get('last_name','')}".strip() or "VK Пользователь"
             avatar = user_info.get("photo_200")
             city = user_info.get("city", {}).get("title") if isinstance(user_info.get("city"), dict) else None
-            user_id, tok = upsert_oauth_user(conn, "vk", vk_user_id, name, avatar, city)
-            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "user": {"id": user_id, "name": name}})}
+            user_id, tok, is_new = upsert_oauth_user(conn, "vk", vk_user_id, name, avatar, city)
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "is_new": is_new, "user": {"id": user_id, "name": name}})}
 
         # ── GOOGLE ──────────────────────────────────────────
         if action == "google_url":
@@ -197,8 +194,8 @@ def handler(event: dict, context) -> dict:
             name = profile.get("name", "Пользователь")
             avatar = profile.get("picture")
 
-            user_id, tok = upsert_oauth_user(conn, "google", google_id, name, avatar)
-            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "user": {"id": user_id, "name": name}})}
+            user_id, tok, is_new = upsert_oauth_user(conn, "google", google_id, name, avatar)
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "is_new": is_new, "user": {"id": user_id, "name": name}})}
 
         # ── TELEGRAM ────────────────────────────────────────
         if action == "telegram_callback":
@@ -226,8 +223,8 @@ def handler(event: dict, context) -> dict:
             name = f"{tg_data.get('first_name','')} {tg_data.get('last_name','')}".strip() or tg_data.get("username", "Пользователь")
             avatar = tg_data.get("photo_url")
 
-            user_id, tok = upsert_oauth_user(conn, "telegram", tg_id, name, avatar)
-            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "user": {"id": user_id, "name": name}})}
+            user_id, tok, is_new = upsert_oauth_user(conn, "telegram", tg_id, name, avatar)
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "is_new": is_new, "user": {"id": user_id, "name": name}})}
 
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Unknown action"})}
     finally:
