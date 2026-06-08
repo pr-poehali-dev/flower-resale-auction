@@ -282,8 +282,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
 
 
-  // VK ID OneTap — динамически грузим SDK из React (надёжнее чем тег в index.html)
+  // VK ID OneTap — временно отключено
+  const VK_LOGIN_ENABLED = false;
   useEffect(() => {
+    if (!VK_LOGIN_ENABLED) return;
     let rendered = false;
 
     const renderWidget = () => {
@@ -447,13 +449,16 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
         <div className="glass-strong rounded-3xl p-5 mb-4">
 
           {/* VK ID OneTap виджет (появляется когда SDK загрузится) */}
-          <div ref={vkContainerRef} className="w-full flex justify-center" style={{ minHeight: vkSdkLoaded ? 44 : 0, marginBottom: vkSdkLoaded ? 8 : 0 }} />
-
-          <div className="flex items-center gap-3 my-4">
-            <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-            <span className="text-white/25 text-xs">или по телефону</span>
-            <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-          </div>
+          {VK_LOGIN_ENABLED && (
+            <>
+              <div ref={vkContainerRef} className="w-full flex justify-center" style={{ minHeight: vkSdkLoaded ? 44 : 0, marginBottom: vkSdkLoaded ? 8 : 0 }} />
+              <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                <span className="text-white/25 text-xs">или по телефону</span>
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              </div>
+            </>
+          )}
 
           {/* Переключатель режима */}
           <div className="flex gap-2 mb-4">
