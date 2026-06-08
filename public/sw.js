@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flowerflip-v1';
+const CACHE_NAME = 'flowerflip-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

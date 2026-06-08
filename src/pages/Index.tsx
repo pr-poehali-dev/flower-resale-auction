@@ -48,7 +48,7 @@ function formatTime(endsAt: string) {
 function isUrgent(endsAt: string) {
   return (new Date(endsAt).getTime() - Date.now()) / 1000 < 300;
 }
-function formatPrice(n: number) { return n.toLocaleString("ru-RU") + " ₽"; }
+function formatPrice(n: number | undefined | null) { return (n ?? 0).toLocaleString("ru-RU") + " ₽"; }
 function timeAgo(d: string) {
   const diff = (Date.now() - new Date(d).getTime()) / 1000;
   if (diff < 60) return "только что";
@@ -1566,7 +1566,7 @@ export default function Index() {
     });
   }, []);
 
-  const handleAuth = (u: User) => setUser(u);
+  const handleAuth = (u: User, _token?: string) => setUser(u);
   const handleLogout = async () => {
     await authApi.logout();
     localStorage.removeItem("ff_token");
