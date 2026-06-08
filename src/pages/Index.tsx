@@ -1486,6 +1486,33 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
               </div>
             )}
           </div>
+
+          {/* Поддержка */}
+          <div className="glass rounded-2xl p-4" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+            <p className="text-white/50 text-sm mb-3 font-medium">Поддержка и контакты</p>
+            <div className="space-y-2">
+              <a href="mailto:flowerflip@flowerflip.ru"
+                className="flex items-center gap-3 glass rounded-xl px-4 py-3 hover:text-white transition-colors group">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: "rgba(255,61,139,0.15)" }}>
+                  <Icon name="Mail" size={15} style={{ color: "var(--neon-pink)" }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white/70 text-sm group-hover:text-white transition-colors">flowerflip@flowerflip.ru</p>
+                  <p className="text-white/30 text-xs">Напишите нам по любому вопросу</p>
+                </div>
+                <Icon name="ExternalLink" size={13} className="text-white/20 flex-shrink-0" />
+              </a>
+              <div className="flex items-center gap-3 px-4 py-2">
+                <Icon name="Shield" size={13} className="text-white/20 flex-shrink-0" />
+                <p className="text-white/25 text-xs">Все сделки защищены системой эскроу</p>
+              </div>
+              <div className="flex items-center gap-3 px-4 py-2">
+                <Icon name="Clock" size={13} className="text-white/20 flex-shrink-0" />
+                <p className="text-white/25 text-xs">Ответ в течение 24 часов в рабочие дни</p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -78,8 +78,8 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
     qs = event.get("queryStringParameters") or {}
-    action = qs.get("action", "")
     body = json.loads(event.get("body") or "{}")
+    action = qs.get("action") or body.get("action", "")
 
     conn = get_conn()
     try:

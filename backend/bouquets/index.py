@@ -46,8 +46,8 @@ def handler(event: dict, context) -> dict:
 
     method = event.get("httpMethod", "GET")
     qs = event.get("queryStringParameters") or {}
-    action = qs.get("action", "list")
     body = json.loads(event.get("body") or "{}")
+    action = qs.get("action") or body.get("action", "list")
     token = (event.get("headers") or {}).get("X-Authorization", "").replace("Bearer ", "")
 
     conn = get_conn()

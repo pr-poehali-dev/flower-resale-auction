@@ -11,11 +11,26 @@ function getToken(): string {
   return localStorage.getItem("ff_token") || "";
 }
 
+// POST-запрос: action кладём И в query string, И в body — чтобы бэкенд точно получил
 async function req(url: string, options: RequestInit = {}) {
   const token = getToken();
   try {
+    // Если есть body (POST) — добавляем action в него тоже
+    let finalOptions = options;
+    if (options.body && typeof options.body === "string") {
+      try {
+        const parsed = JSON.parse(options.body);
+        // Извлекаем action из URL и добавляем в body
+        const urlObj = new URL(url);
+        const actionFromQS = urlObj.searchParams.get("action");
+        if (actionFromQS && !parsed.action) {
+          parsed.__action = actionFromQS; // доп. поле для надёжности
+        }
+        finalOptions = { ...options, body: JSON.stringify(parsed) };
+      } catch { /* не JSON — не трогаем */ }
+    }
     const res = await fetch(url, {
-      ...options,
+      ...finalOptions,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -24,9 +39,8 @@ async function req(url: string, options: RequestInit = {}) {
     });
     const text = await res.text();
     try {
-      const parsed = JSON.parse(text);
-      // бэкенд иногда возвращает json-строку вместо объекта
-      const data = typeof parsed === "string" ? JSON.parse(parsed) : parsed;
+      let data = JSON.parse(text);
+      if (typeof data === "string") data = JSON.parse(data);
       return { ok: res.ok, status: res.status, data };
     } catch {
       return { ok: false, status: res.status, data: { error: text } };
@@ -40,13 +54,13 @@ async function req(url: string, options: RequestInit = {}) {
 // AUTH
 export const authApi = {
   register: (name: string, phone: string, password: string, city?: string) =>
-    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ name, phone, password, city }) }),
+    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ action: "register", name, phone, password, city }) }),
   login: (phone: string, password: string) =>
-    req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ phone, password }) }),
+    req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ action: "login", phone, password }) }),
   me: () => req(`${URLS.auth}/?action=me`),
-  update: (data: { name?: string; avatar_url?: string }) =>
-    req(`${URLS.auth}/?action=update`, { method: "POST", body: JSON.stringify(data) }),
-  logout: () => req(`${URLS.auth}/?action=logout`, { method: "POST" }),
+  update: (data: { name?: string; avatar_url?: string; city?: string }) =>
+    req(`${URLS.auth}/?action=update`, { method: "POST", body: JSON.stringify({ action: "update", ...data }) }),
+  logout: () => req(`${URLS.auth}/?action=logout`, { method: "POST", body: JSON.stringify({ action: "logout" }) }),
 };
 
 // BOUQUETS
@@ -67,11 +81,11 @@ export const bouquetsApi = {
     freshness: string; image_urls: string[];
     start_price: number; duration_hours: number;
     city?: string; district?: string; meet_point?: string;
-  }) => req(`${URLS.bouquets}/?action=create`, { method: "POST", body: JSON.stringify(data) }),
+  }) => req(`${URLS.bouquets}/?action=create`, { method: "POST", body: JSON.stringify({ action: "create", ...data }) }),
   bid: (bouquet_id: number, amount: number) =>
-    req(`${URLS.bouquets}/?action=bid`, { method: "POST", body: JSON.stringify({ bouquet_id, amount }) }),
+    req(`${URLS.bouquets}/?action=bid`, { method: "POST", body: JSON.stringify({ action: "bid", bouquet_id, amount }) }),
   favorite: (bouquet_id: number, add: boolean) =>
-    req(`${URLS.bouquets}/?action=favorite`, { method: "POST", body: JSON.stringify({ bouquet_id, add }) }),
+    req(`${URLS.bouquets}/?action=favorite`, { method: "POST", body: JSON.stringify({ action: "favorite", bouquet_id, add }) }),
   favorites: () => req(`${URLS.bouquets}/?action=favorites`),
 };
 
@@ -87,24 +101,24 @@ export const profileApi = {
   chats: () => req(`${URLS.profile}/?action=chats`),
   messages: (other_id: number) => req(`${URLS.profile}/?action=messages&other_id=${other_id}`),
   sendMessage: (receiver_id: number, text: string, bouquet_id?: number) =>
-    req(`${URLS.profile}/?action=send_message`, { method: "POST", body: JSON.stringify({ receiver_id, text, bouquet_id }) }),
+    req(`${URLS.profile}/?action=send_message`, { method: "POST", body: JSON.stringify({ action: "send_message", receiver_id, text, bouquet_id }) }),
   withdraw: (amount: number, method: string) =>
-    req(`${URLS.profile}/?action=withdraw`, { method: "POST", body: JSON.stringify({ amount, method }) }),
+    req(`${URLS.profile}/?action=withdraw`, { method: "POST", body: JSON.stringify({ action: "withdraw", amount, method }) }),
   addReview: (target_id: number, stars: number, text: string, order_id?: number) =>
-    req(`${URLS.profile}/?action=add_review`, { method: "POST", body: JSON.stringify({ target_id, stars, text, order_id }) }),
+    req(`${URLS.profile}/?action=add_review`, { method: "POST", body: JSON.stringify({ action: "add_review", target_id, stars, text, order_id }) }),
 };
 
 // ESCROW
 export const escrowApi = {
   createOrder: (bouquet_id: number) =>
-    req(`${URLS.escrow}/?action=create_order`, { method: "POST", body: JSON.stringify({ bouquet_id }) }),
+    req(`${URLS.escrow}/?action=create_order`, { method: "POST", body: JSON.stringify({ action: "create_order", bouquet_id }) }),
   pay: (order_id: number) =>
-    req(`${URLS.escrow}/?action=pay`, { method: "POST", body: JSON.stringify({ order_id }) }),
+    req(`${URLS.escrow}/?action=pay`, { method: "POST", body: JSON.stringify({ action: "pay", order_id }) }),
   orderDetail: (id: number) => req(`${URLS.escrow}/?action=order_detail&id=${id}`),
   confirm: (order_id: number) =>
-    req(`${URLS.escrow}/?action=confirm`, { method: "POST", body: JSON.stringify({ order_id }) }),
+    req(`${URLS.escrow}/?action=confirm`, { method: "POST", body: JSON.stringify({ action: "confirm", order_id }) }),
   dispute: (order_id: number, reason: string) =>
-    req(`${URLS.escrow}/?action=dispute`, { method: "POST", body: JSON.stringify({ order_id, reason }) }),
+    req(`${URLS.escrow}/?action=dispute`, { method: "POST", body: JSON.stringify({ action: "dispute", order_id, reason }) }),
   myDeals: () => req(`${URLS.escrow}/?action=my_deals`),
 };
 
@@ -112,20 +126,16 @@ export const escrowApi = {
 const getRedirectUri = () => `${window.location.origin}/oauth-callback`;
 
 export const oauthApi = {
-  // VK ID SDK (OneTap) — VKID.Auth.exchangeCode возвращает access_token + user_id на клиенте
-  // Передаём их на бэкенд для создания/поиска юзера
   vkidCallback: (access_token: string, user_id: string) =>
     req(`${URLS.oauth}/?action=vkid_callback`, {
       method: "POST",
-      body: JSON.stringify({ code: access_token, device_id: user_id }),
+      body: JSON.stringify({ action: "vkid_callback", code: access_token, device_id: user_id }),
     }),
-  // Google OAuth (redirect flow)
   getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri() + '?provider=google')}`),
   googleCallback: (code: string) =>
-    req(`${URLS.oauth}/?action=google_callback`, { method: "POST", body: JSON.stringify({ code, redirect_uri: getRedirectUri() + '?provider=google' }) }),
-  // Telegram Login Widget
+    req(`${URLS.oauth}/?action=google_callback`, { method: "POST", body: JSON.stringify({ action: "google_callback", code, redirect_uri: getRedirectUri() + '?provider=google' }) }),
   telegramCallback: (tgData: Record<string, string>) =>
-    req(`${URLS.oauth}/?action=telegram_callback`, { method: "POST", body: JSON.stringify({ telegram_data: tgData }) }),
+    req(`${URLS.oauth}/?action=telegram_callback`, { method: "POST", body: JSON.stringify({ action: "telegram_callback", telegram_data: tgData }) }),
 };
 
 // UPLOAD
