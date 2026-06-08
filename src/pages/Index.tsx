@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi } from "@/lib/api";
-import { citiesStore, loadCities } from "@/lib/cities";
+import { useCities } from "@/lib/cities";
 
 /* ─── TYPES ─────────────────────────────────────────────── */
 interface Bouquet {
@@ -224,8 +224,9 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
 
 
+  const cities = useCities();
   const citySuggestions = cityInput.length > 0
-    ? citiesStore.list.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 8)
+    ? cities.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 8)
     : [];
 
   // Финализация после OAuth: если новый пользователь — показываем выбор города
@@ -277,12 +278,6 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   }, [finishOAuth]);
 
 
-
-  // Загрузка полного списка городов России с бэкенда
-  const [, setCitiesVersion] = useState(0);
-  useEffect(() => {
-    loadCities().then(() => setCitiesVersion(v => v + 1));
-  }, []);
 
   // VK ID OneTap — временно отключено
   const VK_LOGIN_ENABLED = false;
@@ -406,10 +401,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
               {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
             </div>
             {showCitySuggest && citySuggestions.length > 0 && (
-              <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#1a1320", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 220 }}>
+              <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#150f1c", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 260, backdropFilter: "blur(12px)" }}>
                 {citySuggestions.map(c => (
                   <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/10 transition-colors">
+                    className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-pink-500/20 transition-colors border-b border-white/5 last:border-0">
                     {c}
                   </button>
                 ))}
@@ -498,10 +493,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
                     {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
                   </div>
                   {showCitySuggest && citySuggestions.length > 0 && (
-                    <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#1a1320", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 220 }}>
+                    <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#150f1c", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 260, backdropFilter: "blur(12px)" }}>
                       {citySuggestions.map(c => (
                         <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/10 transition-colors">
+                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-pink-500/20 transition-colors border-b border-white/5 last:border-0">
                           {c}
                         </button>
                       ))}
@@ -668,9 +663,10 @@ function CityFilter({ city, district, onCity, onDistrict }: {
   city: string; district: string;
   onCity: (c: string) => void; onDistrict: (d: string) => void;
 }) {
+  const cities = useCities();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState(city);
-  const suggestions = (input.length > 0 ? citiesStore.list.filter(c => c.toLowerCase().includes(input.toLowerCase())) : citiesStore.list).slice(0, 50);
+  const suggestions = (input.length > 0 ? cities.filter(c => c.toLowerCase().includes(input.toLowerCase())) : cities).slice(0, 50);
   const districts = getDistricts(city);
 
   return (
@@ -686,11 +682,11 @@ function CityFilter({ city, district, onCity, onDistrict }: {
             {city && <button onClick={() => { onCity(""); onDistrict(""); setInput(""); }} className="text-white/30 hover:text-white"><Icon name="X" size={12} /></button>}
           </div>
           {open && suggestions.length > 0 && (
-            <div className="absolute z-30 left-0 right-0 mt-1 rounded-xl overflow-y-auto border border-white/10 shadow-2xl"
-              style={{ background: "#1a1320", maxHeight: 220 }}>
+            <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl overflow-y-auto border border-white/10 shadow-2xl"
+              style={{ background: "#150f1c", maxHeight: 260, backdropFilter: "blur(12px)" }}>
               {suggestions.map(c => (
                 <button key={c} onMouseDown={() => { onCity(c); onDistrict(""); setInput(c); setOpen(false); }}
-                  className="w-full text-left px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 transition-colors">
+                  className="w-full text-left px-3 py-2.5 text-sm text-white/80 hover:bg-pink-500/20 transition-colors border-b border-white/5 last:border-0">
                   {c}
                 </button>
               ))}

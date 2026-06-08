@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { fetchAllCities } from "./api";
 
 // Базовый список (показывается мгновенно, пока грузится полный)
@@ -19,13 +20,37 @@ const FALLBACK_CITIES: string[] = [
 export const citiesStore: { list: string[] } = { list: FALLBACK_CITIES };
 
 let loaded = false;
+let loadingPromise: Promise<string[]> | null = null;
+const subscribers = new Set<() => void>();
+
+export function subscribeCities(cb: () => void): () => void {
+  subscribers.add(cb);
+  return () => subscribers.delete(cb);
+}
 
 export async function loadCities(): Promise<string[]> {
   if (loaded) return citiesStore.list;
-  const all = await fetchAllCities();
-  if (all.length > 0) {
-    citiesStore.list = all;
-    loaded = true;
-  }
-  return citiesStore.list;
+  if (loadingPromise) return loadingPromise;
+  loadingPromise = (async () => {
+    const all = await fetchAllCities();
+    if (all.length > 0) {
+      citiesStore.list = all;
+      loaded = true;
+      subscribers.forEach(cb => cb());
+    }
+    return citiesStore.list;
+  })();
+  return loadingPromise;
+}
+
+// Хук: возвращает актуальный список городов и перерисовывает при загрузке
+export function useCities(): string[] {
+  const [list, setList] = useState(citiesStore.list);
+  useEffect(() => {
+    loadCities();
+    const unsub = subscribeCities(() => setList(citiesStore.list));
+    setList(citiesStore.list);
+    return unsub;
+  }, []);
+  return list;
 }
