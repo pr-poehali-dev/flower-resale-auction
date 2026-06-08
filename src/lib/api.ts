@@ -134,6 +134,12 @@ export const oauthApi = {
       method: "POST",
       body: JSON.stringify({ action: "vk_callback", code, redirect_uri: getRedirectUri() }),
     }),
+  // VK ID SDK (OneTap) — code + device_id от VKID.Auth.exchangeCode
+  vkidCallback: (code: string, device_id: string) =>
+    req(`${URLS.oauth}/?action=vkid_callback`, {
+      method: "POST",
+      body: JSON.stringify({ code, device_id }),
+    }),
   getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri())}&state=google`),
   googleCallback: (code: string) =>
     req(`${URLS.oauth}/?action=google_callback`, {

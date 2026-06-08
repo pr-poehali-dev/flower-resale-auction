@@ -80,17 +80,30 @@ def handler(event: dict, context) -> dict:
     try:
 
         # ── VK ID SDK (OneTap) ───────────────────────────────
-        # POST /?action=vkid_callback
-        # VKID.Auth.exchangeCode выполняется на клиенте — SDK возвращает готовый access_token.
-        # Мы получаем access_token + vk_user_id и сразу запрашиваем профиль.
+        # Фронт получает code + device_id от VKID.Auth.exchangeCode и присылает сюда.
+        # Мы обмениваем их на access_token через api.vk.com/method/auth.exchangeSilentAuthToken
         if action == "vkid_callback":
-            access_token = body.get("code", "")   # фронт кладёт access_token в поле "code"
-            vk_user_id = body.get("device_id", "") # и vk_user_id в поле "device_id"
+            code = body.get("code", "")
+            device_id = body.get("device_id", "")
+            app_id = os.environ.get("VK_APP_ID", "")
+            app_secret = os.environ.get("VK_APP_SECRET", "")
 
-            if not access_token or not vk_user_id:
-                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нет токена VK"})}
+            if not code or not device_id:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нет code или device_id"})}
 
-            # Получаем профиль через VK API
+            # Обмен silent token на access_token
+            exchange = http_get(
+                f"https://api.vk.com/method/auth.exchangeSilentAuthToken"
+                f"?v=5.131&token={code}&access_token={app_secret}&uuid={device_id}"
+            )
+            if exchange.get("error") or not exchange.get("response"):
+                err = exchange.get("error", {})
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": err.get("error_msg", "Ошибка VK")})}
+
+            access_token = exchange["response"]["access_token"]
+            vk_user_id = str(exchange["response"]["user_id"])
+
+            # Получаем профиль
             profile = http_get(
                 f"https://api.vk.com/method/users.get?user_ids={vk_user_id}"
                 f"&fields=photo_200,city&access_token={access_token}&v=5.131"
@@ -102,7 +115,7 @@ def handler(event: dict, context) -> dict:
             city_data = user_info.get("city", {})
             city = city_data.get("title") if isinstance(city_data, dict) else None
 
-            user_id, tok, is_new = upsert_oauth_user(conn, "vk", str(vk_user_id), name, avatar, city)
+            user_id, tok, is_new = upsert_oauth_user(conn, "vk", vk_user_id, name, avatar, city)
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({
                 "token": tok, "is_new": is_new, "user": {"id": user_id, "name": name}
             })}
