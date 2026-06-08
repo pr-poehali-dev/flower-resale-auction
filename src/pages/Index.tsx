@@ -325,7 +325,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
       return;
     }
 
-    // SDK ещё не загружен — добавляем скрипт вручную
+    // SDK ещё не загружен — грузим через наш бэкенд-прокси (CDN блокируются ORB)
     const existing = document.getElementById("vkid-sdk-script");
     if (existing) {
       existing.addEventListener("load", renderWidget);
@@ -334,17 +334,9 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
     const script = document.createElement("script");
     script.id = "vkid-sdk-script";
-    script.src = "https://unpkg.com/@vkid/sdk@2.19.1/dist-sdk/umd/index.js";
+    script.src = oauthApi.vkidSdkUrl();
     script.async = true;
     script.onload = renderWidget;
-    script.onerror = () => {
-      // Если unpkg заблокирован — пробуем jsdelivr
-      const alt = document.createElement("script");
-      alt.src = "https://cdn.jsdelivr.net/npm/@vkid/sdk@2.19.1/dist-sdk/umd/index.js";
-      alt.async = true;
-      alt.onload = renderWidget;
-      document.head.appendChild(alt);
-    };
     document.head.appendChild(script);
   }, [finishOAuth]);
 

@@ -5,6 +5,7 @@ const URLS = {
   upload: "https://functions.poehali.dev/3da42e9b-d4f0-4fa7-91fa-b25481552ce1",
   escrow: "https://functions.poehali.dev/e88eb917-34d3-4efd-b11e-fdea4f137322",
   oauth: "https://functions.poehali.dev/385e4ac7-d359-47f0-bbde-f564f4a774ac",
+  vkidSdk: "https://functions.poehali.dev/04a40261-2f46-44d9-9585-2ca604773192",
 };
 
 function getToken(): string {
@@ -140,6 +141,8 @@ export const oauthApi = {
       method: "POST",
       body: JSON.stringify({ code, device_id }),
     }),
+  // URL прокси для загрузки VK ID SDK (обход блокировки CDN браузером)
+  vkidSdkUrl: () => URLS.vkidSdk,
   getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri())}&state=google`),
   googleCallback: (code: string) =>
     req(`${URLS.oauth}/?action=google_callback`, {

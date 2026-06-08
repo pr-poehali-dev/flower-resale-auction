@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "SDK proxy returns JS",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    }
+  ]
+}
