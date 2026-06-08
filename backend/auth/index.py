@@ -49,6 +49,17 @@ def handler(event: dict, context) -> dict:
     # action — из query string или из body (фронтенд дублирует для надёжности)
     action = qs.get("action") or body.get("action", "")
 
+    # Токен из заголовка (прокси перекладывает Authorization -> X-Authorization)
+    headers = event.get("headers") or {}
+    auth_header = (
+        headers.get("X-Authorization")
+        or headers.get("x-authorization")
+        or headers.get("Authorization")
+        or headers.get("authorization")
+        or ""
+    )
+    token = auth_header.replace("Bearer ", "").strip()
+
     conn = get_conn()
     try:
         # register
