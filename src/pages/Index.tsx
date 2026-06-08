@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi } from "@/lib/api";
+import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi } from "@/lib/api";
 
 /* ─── TYPES ─────────────────────────────────────────────── */
 interface Bouquet {
@@ -105,6 +105,110 @@ const ESCROW_STATUS: Record<string, { label: string; color: string; icon: string
   dispute:         { label: "Спор", color: "#ff6b2b", icon: "AlertTriangle", desc: "Разбирается модератором" },
 };
 
+/* ─── INSTALL BANNER ─────────────────────────────────────── */
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+function InstallBanner() {
+  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [dismissed, setDismissed] = useState(() => !!localStorage.getItem("ff_install_dismissed"));
+  const [isIos, setIsIos] = useState(false);
+  const [showIosGuide, setShowIosGuide] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    // Уже установлено как приложение
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsStandalone(true); return;
+    }
+    // iOS
+    const nav = window.navigator as Navigator & { standalone?: boolean };
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !nav.standalone;
+    setIsIos(ios);
+    // Android / Desktop — слушаем beforeinstallprompt
+    const handler = (e: Event) => { e.preventDefault(); setPrompt(e as BeforeInstallPromptEvent); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  if (isStandalone || dismissed) return null;
+  if (!prompt && !isIos) return null;
+
+  const dismiss = () => { localStorage.setItem("ff_install_dismissed", "1"); setDismissed(true); };
+
+  const install = async () => {
+    if (isIos) { setShowIosGuide(true); return; }
+    if (prompt) {
+      await prompt.prompt();
+      const { outcome } = await prompt.userChoice;
+      if (outcome === "accepted") dismiss();
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed bottom-20 left-3 right-3 z-50 animate-fade-in-up">
+        <div className="glass-strong rounded-2xl p-4 flex items-center gap-3"
+          style={{ border: "1px solid rgba(255,61,139,0.3)", boxShadow: "0 8px 32px rgba(255,61,139,0.2)" }}>
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl"
+            style={{ background: "var(--grad-main)" }}>🌸</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-semibold text-sm">Установить FlowerFlip</p>
+            <p className="text-white/40 text-xs mt-0.5">
+              {isIos ? "Добавьте на экран «Домой»" : "Работает без интернета"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={install}
+              className="btn-gradient px-3 py-1.5 rounded-xl text-xs font-bold">
+              {isIos ? "Как?" : "Установить"}
+            </button>
+            <button onClick={dismiss} className="text-white/30 hover:text-white transition-colors p-1">
+              <Icon name="X" size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* iOS guide modal */}
+      {showIosGuide && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+          onClick={() => setShowIosGuide(false)}>
+          <div className="glass-strong rounded-3xl p-6 w-full max-w-sm animate-fade-in-up"
+            onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-5">
+              <span className="text-4xl block mb-2">📱</span>
+              <h3 className="font-oswald text-xl font-bold text-white">Установить на iPhone</h3>
+            </div>
+            <div className="space-y-4">
+              {[
+                { step: "1", icon: "Share2", text: "Нажмите кнопку «Поделиться»", sub: "значок снизу экрана браузера Safari" },
+                { step: "2", icon: "PlusSquare", text: "Выберите «На экран «Домой»»", sub: "прокрутите список действий вниз" },
+                { step: "3", icon: "CheckCircle2", text: "Нажмите «Добавить»", sub: "приложение появится на рабочем столе" },
+              ].map(s => (
+                <div key={s.step} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white text-sm"
+                    style={{ background: "var(--grad-main)" }}>{s.step}</div>
+                  <div>
+                    <p className="text-white text-sm font-medium">{s.text}</p>
+                    <p className="text-white/40 text-xs mt-0.5">{s.sub}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => { setShowIosGuide(false); dismiss(); }}
+              className="btn-gradient w-full rounded-2xl py-3 mt-5 font-oswald tracking-wide">
+              ПОНЯТНО
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ─── AUTH SCREEN ────────────────────────────────────────── */
 function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -116,10 +220,35 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [showCitySuggest, setShowCitySuggest] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<string | null>(null);
 
   const citySuggestions = cityInput.length > 0
     ? CITIES.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 5)
     : [];
+
+  // Обработка OAuth callback после редиректа
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const provider = params.get("provider");
+    if (!code || !provider) return;
+
+    // Очищаем URL
+    window.history.replaceState({}, "", "/");
+    setOauthLoading(provider);
+
+    const finish = async () => {
+      const r = provider === "vk"
+        ? await oauthApi.vkCallback(code)
+        : await oauthApi.googleCallback(code);
+      setOauthLoading(null);
+      if (!r.ok) { setError(r.data.error || "Ошибка входа"); return; }
+      localStorage.setItem("ff_token", r.data.token);
+      const me = await authApi.me();
+      if (me.ok) onAuth(me.data.user, r.data.token);
+    };
+    finish();
+  }, []);
 
   const submit = async () => {
     setError(""); setLoading(true);
@@ -133,42 +262,128 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     if (me.ok) onAuth(me.data.user, r.data.token);
   };
 
+  const loginWithVk = async () => {
+    setOauthLoading("vk");
+    const r = await oauthApi.getVkUrl();
+    setOauthLoading(null);
+    if (r.ok) window.location.href = r.data.url;
+    else setError(r.data.error || "VK недоступен");
+  };
+
+  const loginWithGoogle = async () => {
+    setOauthLoading("google");
+    const r = await oauthApi.getGoogleUrl();
+    setOauthLoading(null);
+    if (r.ok) window.location.href = r.data.url;
+    else setError(r.data.error || "Google недоступен");
+  };
+
+  if (oauthLoading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(var(--background))" }}>
+      <div className="text-center animate-fade-in">
+        <div className="text-5xl block mb-4 animate-float" style={{ display: "inline-block" }}>🌸</div>
+        <p className="text-white/50 text-sm">Входим через {oauthLoading === "vk" ? "ВКонтакте" : oauthLoading === "google" ? "Google" : "Telegram"}...</p>
+        <div className="mt-4 flex justify-center">
+          <div className="animate-spin rounded-full w-8 h-8 border-2 border-pink-400 border-t-transparent" />
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "hsl(var(--background))" }}>
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-10" style={{ background: "radial-gradient(circle, #ff3d8b, transparent)" }} />
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 py-10" style={{ background: "hsl(var(--background))" }}>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-10 animate-spin-slow" style={{ background: "radial-gradient(circle, #ff3d8b, transparent)" }} />
         <div className="absolute -bottom-20 -right-20 w-80 h-80 rounded-full opacity-10" style={{ background: "radial-gradient(circle, #a855f7, transparent)" }} />
       </div>
       <div className="relative z-10 w-full max-w-sm animate-fade-in-up">
-        <div className="text-center mb-8">
-          <span className="text-5xl block mb-3 animate-float" style={{ display: "inline-block" }}>🌸</span>
+        {/* Logo */}
+        <div className="text-center mb-7">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-4 text-4xl animate-float"
+            style={{ background: "var(--grad-main)", boxShadow: "0 16px 48px rgba(255,61,139,0.4)" }}>
+            🌸
+          </div>
           <h1 className="font-oswald text-4xl font-bold shimmer-text">FlowerFlip</h1>
-          <p className="text-white/40 mt-2 text-sm">Аукцион живых букетов</p>
+          <p className="text-white/40 mt-1.5 text-sm">Аукцион живых букетов</p>
         </div>
-        <div className="glass-strong rounded-3xl p-6">
-          <div className="flex gap-2 mb-6">
+
+        {/* OAuth кнопки */}
+        <div className="glass-strong rounded-3xl p-5 mb-4">
+          <p className="text-white/40 text-xs text-center mb-4 uppercase tracking-widest">Войти через сервис</p>
+          <div className="grid grid-cols-3 gap-3">
+            {/* VK */}
+            <button onClick={loginWithVk} disabled={!!oauthLoading}
+              className="flex flex-col items-center gap-2 glass rounded-2xl py-3 px-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-40 group">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{ background: "#0077FF" }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+                  <path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.862-.525-2.049-1.714-1.033-1.01-1.49-.964-1.744-.964-.355 0-.457.102-.457.593v1.568c0 .42-.133.67-1.235.67-1.82 0-3.844-1.1-5.27-3.165C5.157 10.7 4.673 8.518 4.673 7.97c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.678.864 2.49 2.303 4.675 2.9 4.675.22 0 .322-.102.322-.66V9.75c-.068-1.186-.695-1.287-.695-1.71 0-.203.169-.407.44-.407h2.744c.373 0 .508.203.508.643v3.452c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.57 2.151-3.57.119-.254.322-.491.762-.491h1.744c.525 0 .643.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .779.186.254.796.779 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/>
+                </svg>
+              </div>
+              <span className="text-white/60 text-xs group-hover:text-white transition-colors">ВКонтакте</span>
+            </button>
+
+            {/* Google */}
+            <button onClick={loginWithGoogle} disabled={!!oauthLoading}
+              className="flex flex-col items-center gap-2 glass rounded-2xl py-3 px-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-40 group">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white">
+                <svg width="20" height="20" viewBox="0 0 24 24">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+              </div>
+              <span className="text-white/60 text-xs group-hover:text-white transition-colors">Google</span>
+            </button>
+
+            {/* Telegram */}
+            <div className="flex flex-col items-center gap-2 glass rounded-2xl py-3 px-2 opacity-40 cursor-not-allowed">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{ background: "#26A5E4" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                  <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.062 13.62l-2.95-.924c-.642-.204-.655-.642.136-.953l11.57-4.461c.537-.194 1.006.131.076.939z"/>
+                </svg>
+              </div>
+              <span className="text-white/40 text-xs">Telegram</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 my-4">
+            <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+            <span className="text-white/25 text-xs">или</span>
+            <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+          </div>
+
+          {/* Переключатель режима */}
+          <div className="flex gap-2 mb-4">
             {(["login", "register"] as const).map(m => (
               <button key={m} onClick={() => setMode(m)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all"
-                style={mode === m ? { background: "var(--grad-main)", color: "#fff" } : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
+                style={mode === m
+                  ? { background: "var(--grad-main)", color: "#fff" }
+                  : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
                 {m === "login" ? "Войти" : "Регистрация"}
               </button>
             ))}
           </div>
+
+          {/* Форма */}
           <div className="space-y-3">
             {mode === "register" && (
               <>
                 <div>
                   <label className="text-white/50 text-sm mb-1.5 block">Имя</label>
                   <input value={name} onChange={e => setName(e.target.value)}
-                    className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none"
+                    className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
                     placeholder="Ваше имя" />
                 </div>
                 <div className="relative">
                   <label className="text-white/50 text-sm mb-1.5 block">Город</label>
                   <div className="glass rounded-xl px-4 py-3 flex items-center gap-2">
                     <Icon name="MapPin" size={16} className="text-white/30 flex-shrink-0" />
-                    <input value={cityInput} onChange={e => { setCityInput(e.target.value); setCity(""); setShowCitySuggest(true); }}
+                    <input value={cityInput}
+                      onChange={e => { setCityInput(e.target.value); setCity(""); setShowCitySuggest(true); }}
                       onFocus={() => setShowCitySuggest(true)}
                       onBlur={() => setTimeout(() => setShowCitySuggest(false), 150)}
                       className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none"
@@ -176,11 +391,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
                     {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
                   </div>
                   {showCitySuggest && citySuggestions.length > 0 && (
-                    <div className="absolute z-20 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden border border-white/10">
+                    <div className="absolute z-20 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.1)" }}>
                       {citySuggestions.map(c => (
                         <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:text-white transition-colors"
-                          style={{ background: "transparent" }}>
+                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/5 transition-colors">
                           {c}
                         </button>
                       ))}
@@ -192,22 +406,39 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
             <div>
               <label className="text-white/50 text-sm mb-1.5 block">Телефон</label>
               <input value={phone} onChange={e => setPhone(e.target.value)} type="tel"
-                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none"
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
                 placeholder="+7 999 000 00 00" />
             </div>
             <div>
               <label className="text-white/50 text-sm mb-1.5 block">Пароль</label>
               <input value={password} onChange={e => setPassword(e.target.value)} type="password"
-                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none"
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
                 placeholder="••••••••" onKeyDown={e => e.key === "Enter" && submit()} />
             </div>
           </div>
-          {error && <p className="text-red-400 text-sm mt-3 text-center">{error}</p>}
+
+          {error && (
+            <div className="mt-3 px-3 py-2.5 rounded-xl text-sm text-red-400 text-center"
+              style={{ background: "rgba(255,61,61,0.1)", border: "1px solid rgba(255,61,61,0.2)" }}>
+              {error}
+            </div>
+          )}
+
           <button onClick={submit} disabled={loading}
-            className="btn-gradient w-full rounded-2xl py-4 mt-5 font-oswald text-lg tracking-wide disabled:opacity-50">
-            {loading ? "..." : mode === "login" ? "ВОЙТИ" : "СОЗДАТЬ АККАУНТ"}
+            className="btn-gradient w-full rounded-2xl py-4 mt-4 font-oswald text-lg tracking-wide disabled:opacity-50">
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full w-5 h-5 border-2 border-white border-t-transparent" />
+                Входим...
+              </span>
+            ) : mode === "login" ? "ВОЙТИ" : "СОЗДАТЬ АККАУНТ"}
           </button>
         </div>
+
+        {/* Дисклеймер */}
+        <p className="text-center text-white/20 text-xs px-4">
+          Регистрируясь, вы принимаете условия использования сервиса
+        </p>
       </div>
     </div>
   );
@@ -1325,6 +1556,8 @@ export default function Index() {
         <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-10" style={{ background: "radial-gradient(circle, #ff3d8b, transparent)" }} />
         <div className="absolute top-1/3 -right-40 w-80 h-80 rounded-full opacity-8" style={{ background: "radial-gradient(circle, #a855f7, transparent)" }} />
       </div>
+
+      <InstallBanner />
 
       <header className="sticky top-0 z-40 glass-strong px-4 pt-10 pb-3">
         <div className="flex items-center justify-between max-w-lg mx-auto">

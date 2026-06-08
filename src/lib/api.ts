@@ -4,6 +4,7 @@ const URLS = {
   profile: "https://functions.poehali.dev/e0242723-8c00-4366-807f-86615a61bb2e",
   upload: "https://functions.poehali.dev/3da42e9b-d4f0-4fa7-91fa-b25481552ce1",
   escrow: "https://functions.poehali.dev/e88eb917-34d3-4efd-b11e-fdea4f137322",
+  oauth: "https://functions.poehali.dev/385e4ac7-d359-47f0-bbde-f564f4a774ac",
 };
 
 function getToken(): string {
@@ -105,6 +106,20 @@ export const escrowApi = {
   dispute: (order_id: number, reason: string) =>
     req(`${URLS.escrow}/?action=dispute`, { method: "POST", body: JSON.stringify({ order_id, reason }) }),
   myDeals: () => req(`${URLS.escrow}/?action=my_deals`),
+};
+
+// OAUTH
+const getRedirectUri = () => `${window.location.origin}/oauth-callback`;
+
+export const oauthApi = {
+  getVkUrl: () => req(`${URLS.oauth}/?action=vk_url&redirect_uri=${encodeURIComponent(getRedirectUri() + '?provider=vk')}`),
+  vkCallback: (code: string) =>
+    req(`${URLS.oauth}/?action=vk_callback`, { method: "POST", body: JSON.stringify({ code, redirect_uri: getRedirectUri() + '?provider=vk' }) }),
+  getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri() + '?provider=google')}`),
+  googleCallback: (code: string) =>
+    req(`${URLS.oauth}/?action=google_callback`, { method: "POST", body: JSON.stringify({ code, redirect_uri: getRedirectUri() + '?provider=google' }) }),
+  telegramCallback: (tgData: Record<string, string>) =>
+    req(`${URLS.oauth}/?action=telegram_callback`, { method: "POST", body: JSON.stringify({ telegram_data: tgData }) }),
 };
 
 // UPLOAD

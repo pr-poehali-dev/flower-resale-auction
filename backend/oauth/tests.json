@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "VK URL without config",
+      "method": "GET",
+      "path": "/?action=vk_url&redirect_uri=https://example.com",
+      "expectedStatus": 503,
+      "bodyMatcher": "partial",
+      "expectedBody": {"error": ""}
+    }
+  ]
+}
