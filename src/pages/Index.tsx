@@ -282,17 +282,18 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
 
 
-  // VK ID OneTap — ждём загрузки SDK
+  // VK ID OneTap — динамически грузим SDK из React (надёжнее чем тег в index.html)
   useEffect(() => {
     let rendered = false;
 
-    const init = () => {
+    const renderWidget = () => {
       if (rendered) return;
       const container = vkContainerRef.current;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const VKID = (window as any).VKIDSDK;
       if (!container || !VKID) return;
       rendered = true;
+      setVkSdkLoaded(true);
 
       VKID.Config.init({
         app: 54627734,
@@ -319,21 +320,32 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((window as any).__vkidReady) {
-      init();
-      setVkSdkLoaded(true);
-    } else {
-      window.addEventListener("vkid-ready", () => { init(); setVkSdkLoaded(true); });
+    if ((window as any).VKIDSDK) {
+      renderWidget();
+      return;
     }
-    const attempts = [500, 1000, 2000, 3000, 5000].map(ms => setTimeout(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((window as any).VKIDSDK) { setVkSdkLoaded(true); init(); }
-    }, ms));
 
-    return () => {
-      window.removeEventListener("vkid-ready", init);
-      attempts.forEach(clearTimeout);
+    // SDK ещё не загружен — добавляем скрипт вручную
+    const existing = document.getElementById("vkid-sdk-script");
+    if (existing) {
+      existing.addEventListener("load", renderWidget);
+      return () => existing.removeEventListener("load", renderWidget);
+    }
+
+    const script = document.createElement("script");
+    script.id = "vkid-sdk-script";
+    script.src = "https://unpkg.com/@vkid/sdk@2.19.1/dist-sdk/umd/index.js";
+    script.async = true;
+    script.onload = renderWidget;
+    script.onerror = () => {
+      // Если unpkg заблокирован — пробуем jsdelivr
+      const alt = document.createElement("script");
+      alt.src = "https://cdn.jsdelivr.net/npm/@vkid/sdk@2.19.1/dist-sdk/umd/index.js";
+      alt.async = true;
+      alt.onload = renderWidget;
+      document.head.appendChild(alt);
     };
+    document.head.appendChild(script);
   }, [finishOAuth]);
 
   const submit = async () => {
