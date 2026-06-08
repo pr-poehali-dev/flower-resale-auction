@@ -305,7 +305,8 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
       const oneTap = new VKID.OneTap();
       oneTap.render({ container, showAlternativeLogin: false })
-        .on(VKID.WidgetEvents.ERROR, () => setError("Ошибка VK ID"))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .on(VKID.WidgetEvents.ERROR, (e: any) => { console.error("VKID error:", e); })
         .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: { code: string; device_id: string }) => {
           setOauthLoading("vk");
           const { code, device_id } = payload;
