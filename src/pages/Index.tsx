@@ -297,7 +297,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
       VKID.Config.init({
         app: 54627734,
-        redirectUrl: "https://flowerflip.ru",
+        redirectUrl: window.location.origin,
         responseMode: VKID.ConfigResponseMode.Callback,
         source: VKID.ConfigSource.LOWCODE,
         scope: "",
