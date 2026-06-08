@@ -18,12 +18,15 @@ def get_user_by_token(conn, token: str):
         return None
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT u.id, u.name, u.balance FROM {SCHEMA}.sessions s "
+            f"SELECT u.id, u.name, u.balance, u.is_admin, u.payout_method, u.payout_details FROM {SCHEMA}.sessions s "
             f"JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
         row = cur.fetchone()
-    return {"id": row[0], "name": row[1], "balance": float(row[2])} if row else None
+    if not row:
+        return None
+    return {"id": row[0], "name": row[1], "balance": float(row[2]),
+            "is_admin": bool(row[3]), "payout_method": row[4], "payout_details": row[5]}
 
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
@@ -164,19 +167,65 @@ def handler(event: dict, context) -> dict:
             conn.commit()
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"id": row[0], "created_at": str(row[1])})}
 
+        # Сохранить реквизиты для вывода
+        if action == "save_payout" and method == "POST":
+            if not user:
+                return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            pm = body.get("method", "card")
+            details = body.get("details", "").strip()
+            if pm not in ("card", "sbp", "wallet"):
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Неверный способ"})}
+            if not details:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Укажите реквизиты"})}
+            with conn.cursor() as cur:
+                cur.execute(f"UPDATE {SCHEMA}.users SET payout_method = %s, payout_details = %s WHERE id = %s",
+                            (pm, details, user["id"]))
+            conn.commit()
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "method": pm, "details": details})}
+
+        # Создать заявку на вывод (деньги замораживаются — списываются с баланса)
         if action == "withdraw" and method == "POST":
             if not user:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
             amount = float(body.get("amount", 0))
-            withdraw_method = body.get("method", "card")
+            pm = body.get("method") or user["payout_method"] or "card"
+            details = body.get("details") or user["payout_details"]
             if amount <= 0:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Укажите сумму"})}
             if amount > user["balance"]:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Недостаточно средств"})}
+            if not details:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Сначала укажите реквизиты для вывода"})}
             with conn.cursor() as cur:
+                # Замораживаем сумму (списываем с баланса до решения админа)
                 cur.execute(f"UPDATE {SCHEMA}.users SET balance = balance - %s WHERE id = %s", (amount, user["id"]))
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.withdrawals (user_id, amount, method, details, status) "
+                    f"VALUES (%s, %s, %s, %s, 'pending') RETURNING id",
+                    (user["id"], amount, pm, details)
+                )
+                wid = cur.fetchone()[0]
             conn.commit()
-            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "message": f"Заявка на вывод {amount:.0f} ₽ через {withdraw_method} принята"})}
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({
+                "ok": True, "withdrawal_id": wid,
+                "message": f"Заявка на вывод {amount:.0f} ₽ принята. Ожидайте обработки администратором."
+            })}
+
+        # История выводов пользователя
+        if action == "withdrawals":
+            if not user:
+                return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT id, amount, method, details, status, admin_comment, created_at, processed_at "
+                    f"FROM {SCHEMA}.withdrawals WHERE user_id = %s ORDER BY created_at DESC LIMIT 50",
+                    (user["id"],)
+                )
+                rows = cur.fetchall()
+            items = [{"id": r[0], "amount": float(r[1]), "method": r[2], "details": r[3],
+                      "status": r[4], "admin_comment": r[5],
+                      "created_at": str(r[6]), "processed_at": str(r[7]) if r[7] else None} for r in rows]
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"withdrawals": items})}
 
         if action == "add_review" and method == "POST":
             if not user:

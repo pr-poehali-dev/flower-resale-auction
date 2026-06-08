@@ -1,4 +1,6 @@
 {
+  "payment": "https://functions.poehali.dev/87035cc4-779f-49b8-a18c-1ed92268c9e4",
+  "admin": "https://functions.poehali.dev/a5f90f0f-a62a-4230-ba88-9bc4c17060ff",
   "cities": "https://functions.poehali.dev/926ae37d-af28-4725-9ea2-1fb3bad5cefc",
   "vkid_sdk": "https://functions.poehali.dev/04a40261-2f46-44d9-9585-2ca604773192",
   "oauth": "https://functions.poehali.dev/385e4ac7-d359-47f0-bbde-f564f4a774ac",

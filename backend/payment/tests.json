@@ -1,0 +1,13 @@
+{
+  "tests": [
+    {
+      "name": "Topup without auth",
+      "method": "POST",
+      "path": "/?action=topup",
+      "body": {"action": "topup", "amount": 100},
+      "expectedStatus": 401,
+      "expectedBody": {"error": "string"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -7,6 +7,8 @@ const URLS = {
   oauth: "https://functions.poehali.dev/385e4ac7-d359-47f0-bbde-f564f4a774ac",
   vkidSdk: "https://functions.poehali.dev/04a40261-2f46-44d9-9585-2ca604773192",
   cities: "https://functions.poehali.dev/926ae37d-af28-4725-9ea2-1fb3bad5cefc",
+  admin: "https://functions.poehali.dev/a5f90f0f-a62a-4230-ba88-9bc4c17060ff",
+  payment: "https://functions.poehali.dev/87035cc4-779f-49b8-a18c-1ed92268c9e4",
 };
 
 export async function fetchAllCities(): Promise<string[]> {
@@ -114,10 +116,30 @@ export const profileApi = {
   messages: (other_id: number) => req(`${URLS.profile}/?action=messages&other_id=${other_id}`),
   sendMessage: (receiver_id: number, text: string, bouquet_id?: number) =>
     req(`${URLS.profile}/?action=send_message`, { method: "POST", body: JSON.stringify({ action: "send_message", receiver_id, text, bouquet_id }) }),
-  withdraw: (amount: number, method: string) =>
-    req(`${URLS.profile}/?action=withdraw`, { method: "POST", body: JSON.stringify({ action: "withdraw", amount, method }) }),
+  withdraw: (amount: number, method?: string, details?: string) =>
+    req(`${URLS.profile}/?action=withdraw`, { method: "POST", body: JSON.stringify({ action: "withdraw", amount, method, details }) }),
+  savePayout: (method: string, details: string) =>
+    req(`${URLS.profile}/?action=save_payout`, { method: "POST", body: JSON.stringify({ action: "save_payout", method, details }) }),
+  withdrawals: () => req(`${URLS.profile}/?action=withdrawals`),
   addReview: (target_id: number, stars: number, text: string, order_id?: number) =>
     req(`${URLS.profile}/?action=add_review`, { method: "POST", body: JSON.stringify({ action: "add_review", target_id, stars, text, order_id }) }),
+};
+
+// ADMIN
+export const adminApi = {
+  withdrawals: (status?: string) =>
+    req(`${URLS.admin}/?action=withdrawals${status ? `&status=${status}` : ""}`),
+  approve: (withdrawal_id: number, comment?: string) =>
+    req(`${URLS.admin}/?action=approve`, { method: "POST", body: JSON.stringify({ action: "approve", withdrawal_id, comment }) }),
+  reject: (withdrawal_id: number, comment?: string) =>
+    req(`${URLS.admin}/?action=reject`, { method: "POST", body: JSON.stringify({ action: "reject", withdrawal_id, comment }) }),
+  stats: () => req(`${URLS.admin}/?action=stats`),
+};
+
+// PAYMENT (пополнение через ЮKassa)
+export const paymentApi = {
+  topup: (amount: number) =>
+    req(`${URLS.payment}/?action=topup`, { method: "POST", body: JSON.stringify({ action: "topup", amount, return_url: window.location.origin }) }),
 };
 
 // ESCROW

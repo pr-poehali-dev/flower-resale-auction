@@ -228,6 +228,11 @@ def handler(event: dict, context) -> dict:
                     f"UPDATE {SCHEMA}.users SET balance = balance + %s, sales_count = sales_count + 1 WHERE id = %s",
                     (seller_gets, order[4])
                 )
+                # Комиссия платформы зачисляется на счёт платформы
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.platform_earnings (order_id, amount) VALUES (%s, %s)",
+                    (order_id, commission)
+                )
                 cur.execute(
                     f"UPDATE {SCHEMA}.orders SET escrow_status = 'completed', "
                     f"buyer_confirmed_at = NOW(), updated_at = NOW() WHERE id = %s",

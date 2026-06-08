@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi } from "@/lib/api";
+import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi, adminApi, paymentApi } from "@/lib/api";
 import { useCities } from "@/lib/cities";
 
 /* ─── TYPES ─────────────────────────────────────────────── */
@@ -15,6 +15,7 @@ interface User {
   id: number; name: string; phone: string; avatar_url?: string;
   rating: number; reviews_count: number; sales_count: number;
   purchases_count: number; balance: number; created_at: string; city?: string;
+  is_admin?: boolean; payout_method?: string; payout_details?: string;
 }
 interface Deal {
   id: number; amount: number; commission: number; escrow_status: string;
@@ -1452,13 +1453,21 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawMsg, setWithdrawMsg] = useState("");
+  const [payoutMethod, setPayoutMethod] = useState(user?.payout_method || "card");
+  const [payoutDetails, setPayoutDetails] = useState(user?.payout_details || "");
+  const [payoutSaved, setPayoutSaved] = useState("");
+  const [withdrawals, setWithdrawals] = useState<{ id: number; amount: number; method: string; details: string; status: string; admin_comment?: string; created_at: string }[]>([]);
+
+  const loadWithdrawals = useCallback(() => {
+    profileApi.withdrawals().then(r => { if (r.ok) setWithdrawals(r.data.withdrawals); });
+  }, []);
 
   useEffect(() => {
     if (!user) return;
     if (tab === "reviews") profileApi.reviews().then(r => { if (r.ok) setReviews(r.data.reviews); });
     if (tab === "chat") profileApi.chats().then(r => { if (r.ok) setChats(r.data.chats); });
-    if (tab === "about") profileApi.mySales().then(r => { if (r.ok) setSales(r.data.sales); });
-  }, [tab, user]);
+    if (tab === "about") { profileApi.mySales().then(r => { if (r.ok) setSales(r.data.sales); }); loadWithdrawals(); }
+  }, [tab, user, loadWithdrawals]);
 
   if (!user) return (
     <div className="text-center py-20">
@@ -1469,13 +1478,34 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
 
   if (activeChat) return <ChatWindow chat={activeChat} user={user} onBack={() => setActiveChat(null)} />;
 
-  const doWithdraw = async (method: string) => {
-    const amount = parseFloat(withdrawAmount);
-    if (!amount) return;
-    const r = await profileApi.withdraw(amount, method);
-    setWithdrawMsg(r.ok ? r.data.message : r.data.error);
-    if (r.ok) setWithdrawAmount("");
+  const savePayout = async () => {
+    if (!payoutDetails.trim()) { setPayoutSaved("Укажите реквизиты"); return; }
+    const r = await profileApi.savePayout(payoutMethod, payoutDetails.trim());
+    setPayoutSaved(r.ok ? "Реквизиты сохранены" : (r.data.error || "Ошибка"));
   };
+
+  const doWithdraw = async () => {
+    const amount = parseFloat(withdrawAmount);
+    if (!amount) { setWithdrawMsg("Укажите сумму"); return; }
+    const r = await profileApi.withdraw(amount, payoutMethod, payoutDetails.trim());
+    setWithdrawMsg(r.ok ? r.data.message : r.data.error);
+    if (r.ok) { setWithdrawAmount(""); loadWithdrawals(); }
+  };
+
+  const doTopup = async () => {
+    const amount = parseFloat(withdrawAmount);
+    if (!amount || amount < 10) { setWithdrawMsg("Минимальная сумма пополнения 10 ₽"); return; }
+    const r = await paymentApi.topup(amount);
+    if (r.ok && r.data.confirmation_url) {
+      window.location.href = r.data.confirmation_url;
+    } else {
+      setWithdrawMsg(r.data.error || "Оплата временно недоступна");
+    }
+  };
+
+  const methodLabel: Record<string, string> = { card: "Карта", sbp: "СБП", wallet: "Кошелёк" };
+  const statusLabel: Record<string, string> = { pending: "В обработке", paid: "Выплачено", rejected: "Отклонено" };
+  const statusColor: Record<string, string> = { pending: "text-yellow-400", paid: "text-green-400", rejected: "text-red-400" };
 
   return (
     <div className="animate-fade-in">
@@ -1528,23 +1558,70 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
           <div className="glass rounded-2xl p-4">
             <p className="text-white/50 text-sm mb-3 font-medium">Баланс и выплаты</p>
             <p className="gradient-text font-oswald text-3xl font-bold mb-1">{formatPrice(user.balance)}</p>
-            <p className="text-white/40 text-xs mb-3">Доступно к выводу</p>
-            <div className="glass rounded-xl px-4 py-2 flex items-center gap-2 mb-3">
+            <p className="text-white/40 text-xs mb-4">Доступно к выводу</p>
+
+            {/* Способ вывода */}
+            <p className="text-white/40 text-xs mb-2">Способ получения</p>
+            <div className="flex gap-2 mb-3">
+              {[["card", "Карта", "CreditCard"], ["sbp", "СБП", "Smartphone"], ["wallet", "Кошелёк", "Wallet"]].map(([m, l, ic]) => (
+                <button key={m} onClick={() => setPayoutMethod(m)}
+                  className="flex-1 rounded-xl py-2.5 flex flex-col items-center gap-1 transition-colors text-xs"
+                  style={payoutMethod === m
+                    ? { background: "var(--grad-main)", color: "#fff" }
+                    : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.5)" }}>
+                  <Icon name={ic as "CreditCard"} size={16} />
+                  <span>{l}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Реквизиты */}
+            <div className="glass rounded-xl px-4 py-2.5 flex items-center gap-2 mb-2">
+              <Icon name="CreditCard" size={14} className="text-white/30 flex-shrink-0" />
+              <input value={payoutDetails} onChange={e => { setPayoutDetails(e.target.value); setPayoutSaved(""); }}
+                className="flex-1 bg-transparent text-white outline-none text-sm placeholder:text-white/30"
+                placeholder={payoutMethod === "sbp" ? "Номер телефона" : payoutMethod === "wallet" ? "Номер кошелька" : "Номер карты"} />
+              <button onClick={savePayout} className="text-pink-400 text-xs font-medium hover:text-pink-300 flex-shrink-0">Сохранить</button>
+            </div>
+            {payoutSaved && <p className={`text-xs mb-2 ${payoutSaved.includes("сохранены") ? "text-green-400" : "text-red-400"}`}>{payoutSaved}</p>}
+
+            {/* Сумма вывода */}
+            <div className="glass rounded-xl px-4 py-2.5 flex items-center gap-2 mb-3 mt-3">
               <input value={withdrawAmount} onChange={e => setWithdrawAmount(e.target.value)} type="number"
                 className="flex-1 bg-transparent text-white outline-none text-sm placeholder:text-white/30"
                 placeholder="Сумма для вывода" />
               <span className="text-white/40 text-sm">₽</span>
             </div>
-            {withdrawMsg && <p className={`text-sm mb-3 ${withdrawMsg.includes("Недостаточно") ? "text-red-400" : "text-green-400"}`}>{withdrawMsg}</p>}
+            {withdrawMsg && <p className={`text-sm mb-3 ${withdrawMsg.includes("принята") ? "text-green-400" : "text-red-400"}`}>{withdrawMsg}</p>}
             <div className="flex gap-2">
-              {[["Карта", "CreditCard", "card"], ["СБП", "Smartphone", "sbp"], ["Кошелёк", "Wallet", "wallet"]].map(([l, ic, m]) => (
-                <button key={l} onClick={() => doWithdraw(m)}
-                  className="flex-1 glass rounded-xl py-2.5 flex flex-col items-center gap-1 hover:text-white transition-colors text-white/50">
-                  <Icon name={ic as "CreditCard"} size={16} />
-                  <span className="text-xs">{l}</span>
-                </button>
-              ))}
+              <button onClick={doTopup}
+                className="flex-1 glass rounded-xl py-3 font-oswald text-base tracking-wide text-white hover:bg-white/10 transition-colors">
+                ПОПОЛНИТЬ
+              </button>
+              <button onClick={doWithdraw}
+                className="flex-1 btn-gradient rounded-xl py-3 font-oswald text-base tracking-wide"
+                disabled={user.balance <= 0}>
+                ВЫВЕСТИ
+              </button>
             </div>
+
+            {/* История выводов */}
+            {withdrawals.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-white/5">
+                <p className="text-white/40 text-xs mb-2">История выводов</p>
+                <div className="space-y-2">
+                  {withdrawals.map(w => (
+                    <div key={w.id} className="flex items-center justify-between text-sm">
+                      <div>
+                        <span className="text-white/70">{formatPrice(w.amount)}</span>
+                        <span className="text-white/30 text-xs ml-2">{methodLabel[w.method] || w.method}</span>
+                      </div>
+                      <span className={`text-xs ${statusColor[w.status]}`}>{statusLabel[w.status] || w.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <div className="glass rounded-2xl p-4">
             <p className="text-white/50 text-sm mb-3 font-medium">Мои аукционы</p>
@@ -1645,6 +1722,136 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
   );
 }
 
+/* ─── ADMIN SCREEN ───────────────────────────────────────── */
+interface AdminWithdrawal {
+  id: number; amount: number; method: string; details: string; status: string;
+  admin_comment?: string; created_at: string; user_id: number; user_name: string; user_phone: string;
+}
+interface AdminStats {
+  total_commission: number; pending_count: number; pending_amount: number;
+  paid_total: number; users_count: number; completed_orders: number;
+}
+
+function AdminScreen({ user }: { user: User | null }) {
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [items, setItems] = useState<AdminWithdrawal[]>([]);
+  const [filter, setFilter] = useState("pending");
+  const [busy, setBusy] = useState<number | null>(null);
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(() => {
+    adminApi.stats().then(r => { if (r.ok) setStats(r.data); });
+    adminApi.withdrawals(filter || undefined).then(r => { if (r.ok) setItems(r.data.withdrawals); });
+  }, [filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (id: number, type: "approve" | "reject") => {
+    setBusy(id);
+    const r = type === "approve" ? await adminApi.approve(id) : await adminApi.reject(id);
+    setBusy(null);
+    setMsg(r.ok ? r.data.message : (r.data.error || "Ошибка"));
+    if (r.ok) load();
+  };
+
+  const methodLabel: Record<string, string> = { card: "Карта", sbp: "СБП", wallet: "Кошелёк" };
+  const statusLabel: Record<string, string> = { pending: "В обработке", paid: "Выплачено", rejected: "Отклонено" };
+  const statusColor: Record<string, string> = { pending: "text-yellow-400", paid: "text-green-400", rejected: "text-red-400" };
+
+  if (!user?.is_admin) return (
+    <div className="text-center py-20">
+      <span className="text-5xl block mb-4">🔒</span>
+      <p className="text-white/50 font-oswald text-xl">Доступ только для администратора</p>
+    </div>
+  );
+
+  return (
+    <div className="animate-fade-in">
+      <h2 className="font-oswald text-2xl font-bold text-white mb-4">Админ-панель</h2>
+
+      {/* Статистика */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="glass rounded-2xl p-4">
+            <p className="gradient-text font-oswald text-2xl font-bold">{formatPrice(stats.total_commission)}</p>
+            <p className="text-white/40 text-xs mt-1">Комиссия платформы</p>
+          </div>
+          <div className="glass rounded-2xl p-4">
+            <p className="font-oswald text-2xl font-bold text-yellow-400">{formatPrice(stats.pending_amount)}</p>
+            <p className="text-white/40 text-xs mt-1">Заявок на вывод: {stats.pending_count}</p>
+          </div>
+          <div className="glass rounded-2xl p-4">
+            <p className="font-oswald text-2xl font-bold text-white">{stats.users_count}</p>
+            <p className="text-white/40 text-xs mt-1">Пользователей</p>
+          </div>
+          <div className="glass rounded-2xl p-4">
+            <p className="font-oswald text-2xl font-bold text-white">{stats.completed_orders}</p>
+            <p className="text-white/40 text-xs mt-1">Завершённых сделок</p>
+          </div>
+        </div>
+      )}
+
+      {msg && <p className="text-sm mb-3 text-center text-pink-400">{msg}</p>}
+
+      {/* Фильтр статусов */}
+      <div className="flex gap-2 mb-4">
+        {[["pending", "Новые"], ["paid", "Выплачено"], ["rejected", "Отклонено"], ["", "Все"]].map(([f, l]) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className="flex-1 py-2 rounded-xl text-xs font-medium transition-all"
+            style={filter === f ? { background: "var(--grad-main)", color: "#fff" } : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Заявки */}
+      {items.length === 0 ? (
+        <div className="text-center py-12">
+          <span className="text-4xl block mb-3">📭</span>
+          <p className="text-white/40 text-sm">Нет заявок</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map(w => (
+            <div key={w.id} className="glass rounded-2xl p-4">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="text-white font-medium">{w.user_name}</p>
+                  <p className="text-white/40 text-xs">{w.user_phone}</p>
+                </div>
+                <span className={`text-xs ${statusColor[w.status]}`}>{statusLabel[w.status] || w.status}</span>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="gradient-text font-oswald text-xl font-bold">{formatPrice(w.amount)}</span>
+                <span className="text-white/50 text-sm">{methodLabel[w.method] || w.method}</span>
+              </div>
+              <div className="glass rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
+                <Icon name="CreditCard" size={14} className="text-white/30" />
+                <span className="text-white/70 text-sm font-mono">{w.details}</span>
+              </div>
+              {w.status === "pending" && (
+                <div className="flex gap-2">
+                  <button onClick={() => act(w.id, "approve")} disabled={busy === w.id}
+                    className="flex-1 rounded-xl py-2.5 text-sm font-medium text-white transition-colors"
+                    style={{ background: "rgba(34,197,94,0.8)" }}>
+                    Выплачено
+                  </button>
+                  <button onClick={() => act(w.id, "reject")} disabled={busy === w.id}
+                    className="flex-1 rounded-xl py-2.5 text-sm font-medium text-white transition-colors"
+                    style={{ background: "rgba(239,68,68,0.8)" }}>
+                    Отклонить
+                  </button>
+                </div>
+              )}
+              <p className="text-white/30 text-xs mt-2">{new Date(w.created_at).toLocaleString("ru-RU")}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── ROOT ───────────────────────────────────────────────── */
 export default function Index() {
   const [user, setUser] = useState<User | null>(null);
@@ -1708,11 +1915,12 @@ export default function Index() {
         {activeTab === "sell" && <SellScreen user={user} />}
         {activeTab === "deals" && <DealsScreen user={user} />}
         {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} />}
+        {activeTab === "admin" && <AdminScreen user={user} />}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 glass-strong">
         <div className="max-w-lg mx-auto px-2 py-2 flex items-center justify-around">
-          {TABS.map(tab => {
+          {(user?.is_admin ? [...TABS, { id: "admin", label: "Админ", icon: "ShieldCheck" }] : TABS).map(tab => {
             const isActive = activeTab === tab.id;
             return (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}

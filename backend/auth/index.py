@@ -25,18 +25,20 @@ def get_user_by_token(conn, token: str):
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT u.id, u.name, u.phone, u.avatar_url, u.rating, u.reviews_count, "
-            f"u.sales_count, u.purchases_count, u.balance, u.created_at, u.city "
+            f"u.sales_count, u.purchases_count, u.balance, u.created_at, u.city, "
+            f"u.is_admin, u.payout_method, u.payout_details "
             f"FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
         row = cur.fetchone()
     if not row:
         return None
-    cols = ["id","name","phone","avatar_url","rating","reviews_count","sales_count","purchases_count","balance","created_at","city"]
+    cols = ["id","name","phone","avatar_url","rating","reviews_count","sales_count","purchases_count","balance","created_at","city","is_admin","payout_method","payout_details"]
     d = dict(zip(cols, row))
     d["rating"] = float(d["rating"])
     d["balance"] = float(d["balance"])
     d["created_at"] = str(d["created_at"])
+    d["is_admin"] = bool(d["is_admin"])
     return d
 
 def handler(event: dict, context) -> dict:
