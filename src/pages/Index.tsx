@@ -404,10 +404,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
               {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
             </div>
             {showCitySuggest && citySuggestions.length > 0 && (
-              <div className="absolute z-20 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#1a1320", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 220 }}>
                 {citySuggestions.map(c => (
                   <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/5 transition-colors">
+                    className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/10 transition-colors">
                     {c}
                   </button>
                 ))}
@@ -496,10 +496,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
                     {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
                   </div>
                   {showCitySuggest && citySuggestions.length > 0 && (
-                    <div className="absolute z-20 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.1)" }}>
+                    <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#1a1320", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 220 }}>
                       {citySuggestions.map(c => (
                         <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/5 transition-colors">
+                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-white/10 transition-colors">
                           {c}
                         </button>
                       ))}
@@ -668,7 +668,7 @@ function CityFilter({ city, district, onCity, onDistrict }: {
 }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState(city);
-  const suggestions = input.length > 0 ? CITIES.filter(c => c.toLowerCase().includes(input.toLowerCase())).slice(0, 5) : CITIES.slice(0, 5);
+  const suggestions = input.length > 0 ? CITIES.filter(c => c.toLowerCase().includes(input.toLowerCase())) : CITIES;
   const districts = getDistricts(city);
 
   return (
@@ -684,10 +684,11 @@ function CityFilter({ city, district, onCity, onDistrict }: {
             {city && <button onClick={() => { onCity(""); onDistrict(""); setInput(""); }} className="text-white/30 hover:text-white"><Icon name="X" size={12} /></button>}
           </div>
           {open && suggestions.length > 0 && (
-            <div className="absolute z-30 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden border border-white/10">
+            <div className="absolute z-30 left-0 right-0 mt-1 rounded-xl overflow-y-auto border border-white/10 shadow-2xl"
+              style={{ background: "#1a1320", maxHeight: 220 }}>
               {suggestions.map(c => (
                 <button key={c} onMouseDown={() => { onCity(c); onDistrict(""); setInput(c); setOpen(false); }}
-                  className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 transition-colors">
+                  className="w-full text-left px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 transition-colors">
                   {c}
                 </button>
               ))}
