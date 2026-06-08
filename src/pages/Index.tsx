@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi } from "@/lib/api";
 
@@ -223,6 +223,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [needCity, setNeedCity] = useState(false);
   const [pendingToken, setPendingToken] = useState<string | null>(null);
+  const vkContainerRef = useRef<HTMLDivElement>(null);
 
 
 
@@ -280,6 +281,44 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
 
 
+  // VK ID OneTap — инициализируем когда SDK загружен
+  useEffect(() => {
+    const init = () => {
+      const container = vkContainerRef.current;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const VKID = (window as any).VKIDSDK;
+      if (!container || !VKID) return;
+
+      VKID.Config.init({
+        app: 54627734,
+        redirectUrl: "https://flowerflip.ru",
+        responseMode: VKID.ConfigResponseMode.Callback,
+        source: VKID.ConfigSource.LOWCODE,
+        scope: "",
+      });
+
+      const oneTap = new VKID.OneTap();
+      oneTap.render({ container, showAlternativeLogin: false })
+        .on(VKID.WidgetEvents.ERROR, () => setError("Ошибка VK ID"))
+        .on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: { code: string; device_id: string }) => {
+          setOauthLoading("vk");
+          const { code, device_id } = payload;
+          VKID.Auth.exchangeCode(code, device_id)
+            .then(async () => {
+              const r = await oauthApi.vkidCallback(code, device_id);
+              if (!r.ok) { setError(r.data.error || "Ошибка VK"); setOauthLoading(null); return; }
+              await finishOAuth(r.data.token, r.data.is_new);
+            })
+            .catch(() => { setError("Ошибка VK"); setOauthLoading(null); });
+        });
+    };
+
+    // SDK мог загрузиться асинхронно — пробуем сразу и через 1 сек
+    init();
+    const t = setTimeout(init, 1000);
+    return () => clearTimeout(t);
+  }, [finishOAuth]);
+
   const submit = async () => {
     setError(""); setLoading(true);
     const r = mode === "login"
@@ -292,16 +331,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
 
 
-  const loginWithVk = () => {
-    const params = new URLSearchParams({
-      client_id: "54627734",
-      redirect_uri: window.location.origin,
-      response_type: "code",
-      state: "vk",
-      scope: "email",
-    });
-    window.location.href = `https://oauth.vk.ru/authorize?${params}`;
-  };
+
 
   const loginWithGoogle = async () => {
     setOauthLoading("google");
@@ -394,17 +424,8 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
         {/* OAuth блок */}
         <div className="glass-strong rounded-3xl p-5 mb-4">
 
-          {/* VK кнопка */}
-          <button onClick={loginWithVk} disabled={!!oauthLoading}
-            className="w-full flex items-center justify-center gap-3 rounded-2xl py-3 px-4 mb-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-            style={{ background: "#0077FF" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white" className="flex-shrink-0">
-              <path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.862-.525-2.049-1.714-1.033-1.01-1.49-.964-1.744-.964-.355 0-.457.102-.457.593v1.568c0 .42-.133.67-1.235.67-1.82 0-3.844-1.1-5.27-3.165C5.157 10.7 4.673 8.518 4.673 7.97c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.678.864 2.49 2.303 4.675 2.9 4.675.22 0 .322-.102.322-.66V9.75c-.068-1.186-.695-1.287-.695-1.71 0-.203.169-.407.44-.407h2.744c.373 0 .508.203.508.643v3.452c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.57 2.151-3.57.119-.254.322-.491.762-.491h1.744c.525 0 .643.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .779.186.254.796.779 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/>
-            </svg>
-            <span className="text-white text-sm font-semibold">
-              {oauthLoading === "vk" ? "Подождите..." : "Войти через ВКонтакте"}
-            </span>
-          </button>
+          {/* VK ID OneTap виджет */}
+          <div ref={vkContainerRef} className="mb-2 w-full" style={{ minHeight: 44 }} />
 
           <div className="flex items-center gap-3 my-4">
             <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
