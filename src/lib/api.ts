@@ -112,12 +112,18 @@ export const escrowApi = {
 const getRedirectUri = () => `${window.location.origin}/oauth-callback`;
 
 export const oauthApi = {
-  getVkUrl: () => req(`${URLS.oauth}/?action=vk_url&redirect_uri=${encodeURIComponent(getRedirectUri() + '?provider=vk')}`),
-  vkCallback: (code: string) =>
-    req(`${URLS.oauth}/?action=vk_callback`, { method: "POST", body: JSON.stringify({ code, redirect_uri: getRedirectUri() + '?provider=vk' }) }),
+  // VK ID SDK (OneTap) — VKID.Auth.exchangeCode возвращает access_token + user_id на клиенте
+  // Передаём их на бэкенд для создания/поиска юзера
+  vkidCallback: (access_token: string, user_id: string) =>
+    req(`${URLS.oauth}/?action=vkid_callback`, {
+      method: "POST",
+      body: JSON.stringify({ code: access_token, device_id: user_id }),
+    }),
+  // Google OAuth (redirect flow)
   getGoogleUrl: () => req(`${URLS.oauth}/?action=google_url&redirect_uri=${encodeURIComponent(getRedirectUri() + '?provider=google')}`),
   googleCallback: (code: string) =>
     req(`${URLS.oauth}/?action=google_callback`, { method: "POST", body: JSON.stringify({ code, redirect_uri: getRedirectUri() + '?provider=google' }) }),
+  // Telegram Login Widget
   telegramCallback: (tgData: Record<string, string>) =>
     req(`${URLS.oauth}/?action=telegram_callback`, { method: "POST", body: JSON.stringify({ telegram_data: tgData }) }),
 };

@@ -1,12 +1,13 @@
 {
   "tests": [
     {
-      "name": "VK URL without config",
-      "method": "GET",
-      "path": "/?action=vk_url&redirect_uri=https://example.com",
-      "expectedStatus": 503,
+      "name": "VKID callback creates user",
+      "method": "POST",
+      "path": "/?action=vkid_callback",
+      "body": {"code": "fake_token", "device_id": "12345"},
+      "expectedStatus": 200,
       "bodyMatcher": "partial",
-      "expectedBody": {"error": ""}
+      "expectedBody": {"token": ""}
     }
   ]
 }

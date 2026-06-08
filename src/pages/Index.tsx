@@ -209,6 +209,12 @@ function InstallBanner() {
   );
 }
 
+/* ─── VK ID SDK TYPES ────────────────────────────────────── */
+interface VKIDPayload { code: string; device_id: string; }
+interface VKIDTokenData { access_token: string; user_id?: string; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type VKIDSDKType = any;
+
 /* ─── AUTH SCREEN ────────────────────────────────────────── */
 function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -221,34 +227,82 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const vkContainerRef = useRef<HTMLDivElement>(null);
 
   const citySuggestions = cityInput.length > 0
     ? CITIES.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 5)
     : [];
 
-  // Обработка OAuth callback после редиректа
+  // Финализация после любого OAuth: сохранить токен и загрузить профиль
+  const finishOAuth = useCallback(async (token: string) => {
+    localStorage.setItem("ff_token", token);
+    const me = await authApi.me();
+    if (me.ok) onAuth(me.data.user, token);
+    else setError("Не удалось загрузить профиль");
+    setOauthLoading(null);
+  }, [onAuth]);
+
+  // VK ID SDK — инициализируем OneTap в контейнере
+  useEffect(() => {
+    const container = vkContainerRef.current;
+    if (!container) return;
+
+    const win = window as Window & { VKIDSDK?: VKIDSDKType };
+    if (!win.VKIDSDK) return; // SDK ещё не загрузился
+
+    const VKID = win.VKIDSDK;
+
+    VKID.Config.init({
+      app: 54627734, // app id из кода пользователя
+      redirectUrl: window.location.origin,
+      responseMode: VKID.ConfigResponseMode.Callback,
+      source: VKID.ConfigSource.LOWCODE,
+      scope: "",
+    });
+
+    const oneTap = new VKID.OneTap();
+
+    const widget = oneTap.render({
+      container,
+      showAlternativeLogin: true,
+      oauthList: ["mail_ru", "ok_ru"],
+    });
+
+    widget.on(VKID.WidgetEvents.ERROR, () => {
+      setError("Ошибка виджета VK ID");
+    });
+
+    widget.on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: VKIDPayload) => {
+      setOauthLoading("vk");
+      VKID.Auth.exchangeCode(payload.code, payload.device_id)
+        .then(async (data: VKIDTokenData) => {
+          const uid = (data.user_id != null ? String(data.user_id) : payload.device_id);
+          const r = await oauthApi.vkidCallback(data.access_token, uid);
+          if (!r.ok) { setError(r.data.error || "Ошибка VK входа"); setOauthLoading(null); return; }
+          await finishOAuth(r.data.token);
+        })
+        .catch(() => { setError("Ошибка обмена кода VK"); setOauthLoading(null); });
+    });
+
+    return () => {
+      try { oneTap.close?.(); } catch (_e) { /* ignore */ }
+      container.innerHTML = "";
+    };
+  }, [finishOAuth]);
+
+  // Google OAuth redirect callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const provider = params.get("provider");
-    if (!code || !provider) return;
-
-    // Очищаем URL
+    if (!code || provider !== "google") return;
     window.history.replaceState({}, "", "/");
-    setOauthLoading(provider);
-
-    const finish = async () => {
-      const r = provider === "vk"
-        ? await oauthApi.vkCallback(code)
-        : await oauthApi.googleCallback(code);
-      setOauthLoading(null);
-      if (!r.ok) { setError(r.data.error || "Ошибка входа"); return; }
-      localStorage.setItem("ff_token", r.data.token);
-      const me = await authApi.me();
-      if (me.ok) onAuth(me.data.user, r.data.token);
-    };
-    finish();
-  }, []);
+    setOauthLoading("google");
+    oauthApi.googleCallback(code).then(async r => {
+      if (!r.ok) { setError(r.data.error || "Ошибка Google"); setOauthLoading(null); return; }
+      await finishOAuth(r.data.token);
+    });
+  }, [finishOAuth]);
 
   const submit = async () => {
     setError(""); setLoading(true);
@@ -257,17 +311,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
       : await authApi.register(name, phone, password, city || cityInput);
     setLoading(false);
     if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
-    localStorage.setItem("ff_token", r.data.token);
-    const me = await authApi.me();
-    if (me.ok) onAuth(me.data.user, r.data.token);
-  };
-
-  const loginWithVk = async () => {
-    setOauthLoading("vk");
-    const r = await oauthApi.getVkUrl();
-    setOauthLoading(null);
-    if (r.ok) window.location.href = r.data.url;
-    else setError(r.data.error || "VK недоступен");
+    await finishOAuth(r.data.token);
   };
 
   const loginWithGoogle = async () => {
@@ -282,7 +326,9 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(var(--background))" }}>
       <div className="text-center animate-fade-in">
         <div className="text-5xl block mb-4 animate-float" style={{ display: "inline-block" }}>🌸</div>
-        <p className="text-white/50 text-sm">Входим через {oauthLoading === "vk" ? "ВКонтакте" : oauthLoading === "google" ? "Google" : "Telegram"}...</p>
+        <p className="text-white/50 text-sm">
+          Входим через {oauthLoading === "vk" ? "ВКонтакте" : "Google"}...
+        </p>
         <div className="mt-4 flex justify-center">
           <div className="animate-spin rounded-full w-8 h-8 border-2 border-pink-400 border-t-transparent" />
         </div>
@@ -307,51 +353,31 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
           <p className="text-white/40 mt-1.5 text-sm">Аукцион живых букетов</p>
         </div>
 
-        {/* OAuth кнопки */}
+        {/* OAuth блок */}
         <div className="glass-strong rounded-3xl p-5 mb-4">
-          <p className="text-white/40 text-xs text-center mb-4 uppercase tracking-widest">Войти через сервис</p>
-          <div className="grid grid-cols-3 gap-3">
-            {/* VK */}
-            <button onClick={loginWithVk} disabled={!!oauthLoading}
-              className="flex flex-col items-center gap-2 glass rounded-2xl py-3 px-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-40 group">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: "#0077FF" }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
-                  <path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.862-.525-2.049-1.714-1.033-1.01-1.49-.964-1.744-.964-.355 0-.457.102-.457.593v1.568c0 .42-.133.67-1.235.67-1.82 0-3.844-1.1-5.27-3.165C5.157 10.7 4.673 8.518 4.673 7.97c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.678.864 2.49 2.303 4.675 2.9 4.675.22 0 .322-.102.322-.66V9.75c-.068-1.186-.695-1.287-.695-1.71 0-.203.169-.407.44-.407h2.744c.373 0 .508.203.508.643v3.452c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.57 2.151-3.57.119-.254.322-.491.762-.491h1.744c.525 0 .643.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .779.186.254.796.779 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/>
-                </svg>
-              </div>
-              <span className="text-white/60 text-xs group-hover:text-white transition-colors">ВКонтакте</span>
-            </button>
 
-            {/* Google */}
-            <button onClick={loginWithGoogle} disabled={!!oauthLoading}
-              className="flex flex-col items-center gap-2 glass rounded-2xl py-3 px-2 transition-all hover:scale-105 active:scale-95 disabled:opacity-40 group">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white">
-                <svg width="20" height="20" viewBox="0 0 24 24">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-              </div>
-              <span className="text-white/60 text-xs group-hover:text-white transition-colors">Google</span>
-            </button>
+          {/* VK ID OneTap виджет */}
+          <div ref={vkContainerRef} className="mb-4 rounded-2xl overflow-hidden" style={{ minHeight: 44 }} />
 
-            {/* Telegram */}
-            <div className="flex flex-col items-center gap-2 glass rounded-2xl py-3 px-2 opacity-40 cursor-not-allowed">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                style={{ background: "#26A5E4" }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                  <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.062 13.62l-2.95-.924c-.642-.204-.655-.642.136-.953l11.57-4.461c.537-.194 1.006.131.076.939z"/>
-                </svg>
-              </div>
-              <span className="text-white/40 text-xs">Telegram</span>
+          {/* Google кнопка */}
+          <button onClick={loginWithGoogle}
+            className="w-full flex items-center justify-center gap-3 glass rounded-2xl py-3 px-4 transition-all hover:scale-[1.02] active:scale-[0.98] group mb-1">
+            <div className="w-6 h-6 flex items-center justify-center bg-white rounded-md flex-shrink-0">
+              <svg width="16" height="16" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
             </div>
-          </div>
+            <span className="text-white/70 text-sm font-medium group-hover:text-white transition-colors">
+              Войти через Google
+            </span>
+          </button>
 
           <div className="flex items-center gap-3 my-4">
             <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-            <span className="text-white/25 text-xs">или</span>
+            <span className="text-white/25 text-xs">или по телефону</span>
             <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
           </div>
 

@@ -84,45 +84,50 @@ def handler(event: dict, context) -> dict:
     conn = get_conn()
     try:
 
-        # ── VK ──────────────────────────────────────────────
-        # GET /?action=vk_url — получить URL для редиректа
-        if action == "vk_url":
-            app_id = os.environ.get("VK_APP_ID", "")
-            redirect_uri = qs.get("redirect_uri", "")
-            if not app_id:
-                return {"statusCode": 503, "headers": CORS, "body": json.dumps({"error": "VK не настроен"})}
-            params = urllib.parse.urlencode({
-                "client_id": app_id,
-                "redirect_uri": redirect_uri,
-                "scope": "email",
-                "response_type": "code",
-                "v": "5.131",
-                "display": "page",
-            })
-            url = f"https://oauth.vk.com/authorize?{params}"
-            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"url": url})}
+        # ── VK ID SDK (OneTap) ───────────────────────────────
+        # POST /?action=vkid_callback
+        # VKID.Auth.exchangeCode выполняется на клиенте — SDK возвращает готовый access_token.
+        # Мы получаем access_token + vk_user_id и сразу запрашиваем профиль.
+        if action == "vkid_callback":
+            access_token = body.get("code", "")   # фронт кладёт access_token в поле "code"
+            vk_user_id = body.get("device_id", "") # и vk_user_id в поле "device_id"
 
-        # POST /?action=vk_callback — обменять code на токен
+            if not access_token or not vk_user_id:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нет токена VK"})}
+
+            # Получаем профиль через VK API
+            profile = http_get(
+                f"https://api.vk.com/method/users.get?user_ids={vk_user_id}"
+                f"&fields=photo_200,city&access_token={access_token}&v=5.131"
+            )
+            resp = profile.get("response", [{}])
+            user_info = resp[0] if resp else {}
+            name = f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}".strip() or "VK Пользователь"
+            avatar = user_info.get("photo_200")
+            city_data = user_info.get("city", {})
+            city = city_data.get("title") if isinstance(city_data, dict) else None
+
+            user_id, tok = upsert_oauth_user(conn, "vk", str(vk_user_id), name, avatar, city)
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({
+                "token": tok, "user": {"id": user_id, "name": name}
+            })}
+
+        # ── VK OAuth (legacy redirect, оставляем для совместимости) ──
         if action == "vk_callback":
             code = body.get("code", "")
             redirect_uri = body.get("redirect_uri", "")
             app_id = os.environ.get("VK_APP_ID", "")
             app_secret = os.environ.get("VK_APP_SECRET", "")
             if not app_id or not app_secret:
-                return {"statusCode": 503, "headers": CORS, "body": json.dumps({"error": "VK не настроен. Добавьте VK_APP_ID и VK_APP_SECRET в секреты."})}
-
-            # Получаем access_token
+                return {"statusCode": 503, "headers": CORS, "body": json.dumps({"error": "VK не настроен."})}
             token_data = http_get(
                 f"https://oauth.vk.com/access_token?client_id={app_id}&client_secret={app_secret}"
                 f"&redirect_uri={urllib.parse.quote(redirect_uri)}&code={code}"
             )
             if "error" in token_data:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Ошибка VK: " + token_data.get("error_description", "")})}
-
             vk_token = token_data["access_token"]
             vk_user_id = str(token_data["user_id"])
-
-            # Получаем профиль
             profile = http_get(
                 f"https://api.vk.com/method/users.get?user_ids={vk_user_id}"
                 f"&fields=photo_200,city&access_token={vk_token}&v=5.131"
@@ -131,7 +136,6 @@ def handler(event: dict, context) -> dict:
             name = f"{user_info.get('first_name','')} {user_info.get('last_name','')}".strip()
             avatar = user_info.get("photo_200")
             city = user_info.get("city", {}).get("title") if isinstance(user_info.get("city"), dict) else None
-
             user_id, tok = upsert_oauth_user(conn, "vk", vk_user_id, name, avatar, city)
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "user": {"id": user_id, "name": name}})}
 
