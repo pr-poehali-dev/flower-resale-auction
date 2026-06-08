@@ -227,8 +227,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
-  const [vkWidgetReady, setVkWidgetReady] = useState(false);
-  const vkContainerRef = useRef<HTMLDivElement>(null);
+
 
   const citySuggestions = cityInput.length > 0
     ? CITIES.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 5)
@@ -243,65 +242,18 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     setOauthLoading(null);
   }, [onAuth]);
 
-  // VK ID SDK — ждём загрузки SDK, потом рендерим OneTap
+  // VK OAuth redirect callback (code приходит в URL после редиректа от VK)
   useEffect(() => {
-    let attempts = 0;
-    let timer: ReturnType<typeof setTimeout>;
-
-    const tryInit = () => {
-      const container = vkContainerRef.current;
-      if (!container) return;
-
-      const win = window as Window & { VKIDSDK?: VKIDSDKType };
-      const VKID = win.VKIDSDK;
-
-      if (!VKID) {
-        // SDK ещё грузится — повторяем каждые 300ms, макс 10 секунд
-        if (attempts++ < 33) { timer = setTimeout(tryInit, 300); }
-        return;
-      }
-
-      try {
-        VKID.Config.init({
-          app: 54627734,
-          redirectUrl: window.location.origin,
-          responseMode: VKID.ConfigResponseMode.Callback,
-          source: VKID.ConfigSource.LOWCODE,
-          scope: "",
-        });
-
-        const oneTap = new VKID.OneTap();
-
-        const widget = oneTap.render({
-          container,
-          showAlternativeLogin: true,
-          oauthList: ["mail_ru", "ok_ru"],
-        });
-
-        setVkWidgetReady(true);
-
-        widget.on(VKID.WidgetEvents.ERROR, () => {
-          setVkWidgetReady(false);
-        });
-
-        widget.on(VKID.OneTapInternalEvents.LOGIN_SUCCESS, (payload: VKIDPayload) => {
-          setOauthLoading("vk");
-          VKID.Auth.exchangeCode(payload.code, payload.device_id)
-            .then(async (data: VKIDTokenData) => {
-              const uid = data.user_id != null ? String(data.user_id) : payload.device_id;
-              const r = await oauthApi.vkidCallback(data.access_token, uid);
-              if (!r.ok) { setError(r.data.error || "Ошибка VK входа"); setOauthLoading(null); return; }
-              await finishOAuth(r.data.token);
-            })
-            .catch(() => { setError("Ошибка обмена кода VK"); setOauthLoading(null); });
-        });
-      } catch (_e) {
-        setError("Ошибка инициализации VK ID");
-      }
-    };
-
-    tryInit();
-    return () => clearTimeout(timer);
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const provider = params.get("provider");
+    if (!code || provider !== "vk") return;
+    window.history.replaceState({}, "", "/");
+    setOauthLoading("vk");
+    oauthApi.vkCallback(code).then(async r => {
+      if (!r.ok) { setError(r.data.error || "Ошибка VK"); setOauthLoading(null); return; }
+      await finishOAuth(r.data.token);
+    });
   }, [finishOAuth]);
 
   // Google OAuth redirect callback
@@ -326,6 +278,13 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     setLoading(false);
     if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
     await finishOAuth(r.data.token);
+  };
+
+  const loginWithVk = async () => {
+    setOauthLoading("vk");
+    const r = await oauthApi.getVkUrl();
+    if (r.ok) { window.location.href = r.data.url; }
+    else { setError(r.data.error || "VK недоступен"); setOauthLoading(null); }
   };
 
   const loginWithGoogle = async () => {
@@ -370,26 +329,21 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
         {/* OAuth блок */}
         <div className="glass-strong rounded-3xl p-5 mb-4">
 
-          {/* VK ID OneTap виджет */}
-          <div className="mb-3 relative">
-            {/* Заглушка пока SDK грузится */}
-            {!vkWidgetReady && (
-              <div className="flex items-center justify-center gap-3 rounded-2xl py-3 px-4"
-                style={{ background: "#0077FF", minHeight: 44, opacity: 0.7 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                  <path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.862-.525-2.049-1.714-1.033-1.01-1.49-.964-1.744-.964-.355 0-.457.102-.457.593v1.568c0 .42-.133.67-1.235.67-1.82 0-3.844-1.1-5.27-3.165C5.157 10.7 4.673 8.518 4.673 7.97c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.678.864 2.49 2.303 4.675 2.9 4.675.22 0 .322-.102.322-.66V9.75c-.068-1.186-.695-1.287-.695-1.71 0-.203.169-.407.44-.407h2.744c.373 0 .508.203.508.643v3.452c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.57 2.151-3.57.119-.254.322-.491.762-.491h1.744c.525 0 .643.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .779.186.254.796.779 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/>
-                </svg>
-                <span className="text-white text-sm font-medium">Войти через ВКонтакте</span>
-                <div className="animate-spin rounded-full w-4 h-4 border-2 border-white/40 border-t-white ml-auto" />
-              </div>
-            )}
-            <div ref={vkContainerRef} className="rounded-2xl overflow-hidden"
-              style={{ minHeight: vkWidgetReady ? 44 : 0, display: vkWidgetReady ? "block" : "none" }} />
-          </div>
+          {/* VK кнопка */}
+          <button onClick={loginWithVk} disabled={!!oauthLoading}
+            className="w-full flex items-center justify-center gap-3 rounded-2xl py-3 px-4 mb-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+            style={{ background: "#0077FF" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="white" className="flex-shrink-0">
+              <path d="M15.684 0H8.316C1.592 0 0 1.592 0 8.316v7.368C0 22.408 1.592 24 8.316 24h7.368C22.408 24 24 22.408 24 15.684V8.316C24 1.592 22.408 0 15.684 0zm3.692 17.123h-1.744c-.66 0-.862-.525-2.049-1.714-1.033-1.01-1.49-.964-1.744-.964-.355 0-.457.102-.457.593v1.568c0 .42-.133.67-1.235.67-1.82 0-3.844-1.1-5.27-3.165C5.157 10.7 4.673 8.518 4.673 7.97c0-.254.102-.491.593-.491h1.744c.44 0 .61.203.78.678.864 2.49 2.303 4.675 2.9 4.675.22 0 .322-.102.322-.66V9.75c-.068-1.186-.695-1.287-.695-1.71 0-.203.169-.407.44-.407h2.744c.373 0 .508.203.508.643v3.452c0 .372.17.508.271.508.22 0 .407-.136.813-.542 1.254-1.406 2.151-3.57 2.151-3.57.119-.254.322-.491.762-.491h1.744c.525 0 .643.27.525.643-.22 1.017-2.354 4.031-2.354 4.031-.186.305-.254.44 0 .779.186.254.796.779 1.203 1.253.745.847 1.32 1.558 1.473 2.05.17.49-.085.745-.576.745z"/>
+            </svg>
+            <span className="text-white text-sm font-semibold">
+              {oauthLoading === "vk" ? "Перенаправляем..." : "Войти через ВКонтакте"}
+            </span>
+          </button>
 
           {/* Google кнопка */}
-          <button onClick={loginWithGoogle}
-            className="w-full flex items-center justify-center gap-3 glass rounded-2xl py-3 px-4 transition-all hover:scale-[1.02] active:scale-[0.98] group mb-1">
+          <button onClick={loginWithGoogle} disabled={!!oauthLoading}
+            className="w-full flex items-center justify-center gap-3 glass rounded-2xl py-3 px-4 transition-all hover:scale-[1.02] active:scale-[0.98] group disabled:opacity-50">
             <div className="w-6 h-6 flex items-center justify-center bg-white rounded-md flex-shrink-0">
               <svg width="16" height="16" viewBox="0 0 24 24">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -399,7 +353,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
               </svg>
             </div>
             <span className="text-white/70 text-sm font-medium group-hover:text-white transition-colors">
-              Войти через Google
+              {oauthLoading === "google" ? "Перенаправляем..." : "Войти через Google"}
             </span>
           </button>
 

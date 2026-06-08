@@ -112,7 +112,23 @@ def handler(event: dict, context) -> dict:
                 "token": tok, "user": {"id": user_id, "name": name}
             })}
 
-        # ── VK OAuth (legacy redirect, оставляем для совместимости) ──
+        # ── VK OAuth redirect — получить URL для редиректа ──
+        if action == "vk_url":
+            app_id = os.environ.get("VK_APP_ID", "")
+            redirect_uri = qs.get("redirect_uri", "")
+            if not app_id:
+                return {"statusCode": 503, "headers": CORS, "body": json.dumps({"error": "VK не настроен. Добавьте VK_APP_ID в секреты."})}
+            params = urllib.parse.urlencode({
+                "client_id": app_id,
+                "redirect_uri": redirect_uri,
+                "scope": "email",
+                "response_type": "code",
+                "v": "5.131",
+                "display": "page",
+            })
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"url": f"https://oauth.vk.com/authorize?{params}"})}
+
+        # ── VK OAuth redirect — обменять code на токен ──
         if action == "vk_callback":
             code = body.get("code", "")
             redirect_uri = body.get("redirect_uri", "")
