@@ -3,6 +3,7 @@ const URLS = {
   bouquets: "https://functions.poehali.dev/c984e344-489c-4df8-b265-e621f407f1c2",
   profile: "https://functions.poehali.dev/e0242723-8c00-4366-807f-86615a61bb2e",
   upload: "https://functions.poehali.dev/3da42e9b-d4f0-4fa7-91fa-b25481552ce1",
+  escrow: "https://functions.poehali.dev/e88eb917-34d3-4efd-b11e-fdea4f137322",
 };
 
 function getToken(): string {
@@ -11,26 +12,34 @@ function getToken(): string {
 
 async function req(url: string, options: RequestInit = {}) {
   const token = getToken();
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-  const text = await res.text();
   try {
-    return { ok: res.ok, status: res.status, data: JSON.parse(text) };
-  } catch {
-    return { ok: false, status: res.status, data: { error: text } };
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+    const text = await res.text();
+    try {
+      const parsed = JSON.parse(text);
+      // бэкенд иногда возвращает json-строку вместо объекта
+      const data = typeof parsed === "string" ? JSON.parse(parsed) : parsed;
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      return { ok: false, status: res.status, data: { error: text } };
+    }
+  } catch (e) {
+    console.error("Fetch error:", e, "for", url);
+    return { ok: false, status: 0, data: { error: "Нет соединения с сервером" } };
   }
 }
 
 // AUTH
 export const authApi = {
-  register: (name: string, phone: string, password: string) =>
-    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ name, phone, password }) }),
+  register: (name: string, phone: string, password: string, city?: string) =>
+    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ name, phone, password, city }) }),
   login: (phone: string, password: string) =>
     req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ phone, password }) }),
   me: () => req(`${URLS.auth}/?action=me`),
@@ -41,12 +50,14 @@ export const authApi = {
 
 // BOUQUETS
 export const bouquetsApi = {
-  list: (params?: { status?: string; tag?: string; sort?: string; max_price?: number }) => {
+  list: (params?: { status?: string; tag?: string; sort?: string; max_price?: number; city?: string; district?: string }) => {
     const qs = new URLSearchParams({ action: "list" });
     if (params?.status) qs.set("status", params.status);
     if (params?.tag) qs.set("tag", params.tag);
     if (params?.sort) qs.set("sort", params.sort);
     if (params?.max_price) qs.set("max_price", String(params.max_price));
+    if (params?.city) qs.set("city", params.city);
+    if (params?.district) qs.set("district", params.district);
     return req(`${URLS.bouquets}/?${qs}`);
   },
   detail: (id: number) => req(`${URLS.bouquets}/?action=detail&id=${id}`),
@@ -54,6 +65,7 @@ export const bouquetsApi = {
     title: string; description?: string; flowers: string[];
     freshness: string; image_urls: string[];
     start_price: number; duration_hours: number;
+    city?: string; district?: string; meet_point?: string;
   }) => req(`${URLS.bouquets}/?action=create`, { method: "POST", body: JSON.stringify(data) }),
   bid: (bouquet_id: number, amount: number) =>
     req(`${URLS.bouquets}/?action=bid`, { method: "POST", body: JSON.stringify({ bouquet_id, amount }) }),
@@ -79,6 +91,20 @@ export const profileApi = {
     req(`${URLS.profile}/?action=withdraw`, { method: "POST", body: JSON.stringify({ amount, method }) }),
   addReview: (target_id: number, stars: number, text: string, order_id?: number) =>
     req(`${URLS.profile}/?action=add_review`, { method: "POST", body: JSON.stringify({ target_id, stars, text, order_id }) }),
+};
+
+// ESCROW
+export const escrowApi = {
+  createOrder: (bouquet_id: number) =>
+    req(`${URLS.escrow}/?action=create_order`, { method: "POST", body: JSON.stringify({ bouquet_id }) }),
+  pay: (order_id: number) =>
+    req(`${URLS.escrow}/?action=pay`, { method: "POST", body: JSON.stringify({ order_id }) }),
+  orderDetail: (id: number) => req(`${URLS.escrow}/?action=order_detail&id=${id}`),
+  confirm: (order_id: number) =>
+    req(`${URLS.escrow}/?action=confirm`, { method: "POST", body: JSON.stringify({ order_id }) }),
+  dispute: (order_id: number, reason: string) =>
+    req(`${URLS.escrow}/?action=dispute`, { method: "POST", body: JSON.stringify({ order_id, reason }) }),
+  myDeals: () => req(`${URLS.escrow}/?action=my_deals`),
 };
 
 // UPLOAD

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import { authApi, bouquetsApi, profileApi, uploadApi } from "@/lib/api";
+import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi } from "@/lib/api";
 
 /* ─── TYPES ─────────────────────────────────────────────── */
 interface Bouquet {
@@ -8,16 +8,21 @@ interface Bouquet {
   title: string; description?: string; flowers: string[]; freshness: string;
   image_urls: string[]; start_price: number; current_price: number;
   min_step: number; bids_count: number; status: string; ends_at: string;
-  liked: boolean;
+  liked: boolean; city?: string; district?: string; meet_point?: string;
 }
 interface User {
   id: number; name: string; phone: string; avatar_url?: string;
   rating: number; reviews_count: number; sales_count: number;
-  purchases_count: number; balance: number; created_at: string;
+  purchases_count: number; balance: number; created_at: string; city?: string;
 }
-interface Order {
-  id: number; amount: number; status: string; created_at: string;
-  title: string; image_urls: string[]; seller_name: string; seller_id: number;
+interface Deal {
+  id: number; amount: number; commission: number; escrow_status: string;
+  created_at: string; updated_at: string; auto_confirm_at?: string;
+  dispute_reason?: string; seller_phone_revealed: boolean;
+  title: string; image_urls: string[]; city?: string; district?: string;
+  seller_name: string; seller_id: number; buyer_name: string; buyer_id: number;
+  seller_phone?: string; buyer_phone?: string;
+  is_buyer: boolean; is_seller: boolean;
 }
 interface Review { id: number; stars: number; text: string; created_at: string; reviewer_name: string; }
 interface Chat { last_message: string; created_at: string; other_id: number; other_name: string; bouquet_title?: string; unread: number; bouquet_id?: number; }
@@ -27,7 +32,7 @@ const TABS = [
   { id: "auctions", label: "Аукционы", icon: "Zap" },
   { id: "catalog", label: "Каталог", icon: "Grid3X3" },
   { id: "sell", label: "Продать", icon: "PlusCircle" },
-  { id: "orders", label: "Заказы", icon: "Package" },
+  { id: "deals", label: "Сделки", icon: "Handshake" },
   { id: "profile", label: "Профиль", icon: "User" },
 ];
 const ALL_TAGS = ["все", "розы", "тюльпаны", "пионы", "орхидеи", "герберы", "каллы", "подсолнухи"];
@@ -57,20 +62,70 @@ function useTick() {
   useEffect(() => { const id = setInterval(() => setT(t => t + 1), 1000); return () => clearInterval(id); }, []);
 }
 
+/* ─── CITIES DATA ────────────────────────────────────────── */
+const CITIES = [
+  "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань",
+  "Нижний Новгород", "Челябинск", "Самара", "Уфа", "Ростов-на-Дону",
+  "Краснодар", "Пермь", "Воронеж", "Волгоград", "Красноярск",
+];
+
+const DISTRICTS: Record<string, string[]> = {
+  "Москва": [
+    "Центральный", "Северный", "Северо-Восточный", "Восточный",
+    "Юго-Восточный", "Южный", "Юго-Западный", "Западный",
+    "Северо-Западный", "Зеленоградский", "Новомосковский", "Троицкий",
+  ],
+  "Санкт-Петербург": [
+    "Адмиралтейский", "Василеостровский", "Выборгский", "Калининский",
+    "Кировский", "Колпинский", "Красногвардейский", "Красносельский",
+    "Кронштадтский", "Курортный", "Московский", "Невский",
+    "Петроградский", "Петродворцовый", "Приморский", "Пушкинский",
+    "Фрунзенский", "Центральный",
+  ],
+  "Екатеринбург": [
+    "Верх-Исетский", "Железнодорожный", "Кировский", "Ленинский",
+    "Октябрьский", "Орджоникидзевский", "Чкаловский",
+  ],
+  "Новосибирск": [
+    "Дзержинский", "Железнодорожный", "Заельцовский", "Калининский",
+    "Кировский", "Ленинский", "Октябрьский", "Первомайский", "Советский",
+    "Центральный",
+  ],
+  "Казань": ["Авиастроительный", "Вахитовский", "Кировский", "Московский", "Ново-Савиновский", "Приволжский", "Советский"],
+};
+
+function getDistricts(city: string): string[] {
+  return DISTRICTS[city] || [];
+}
+
+const ESCROW_STATUS: Record<string, { label: string; color: string; icon: string; desc: string }> = {
+  waiting_payment: { label: "Ожидает оплаты", color: "#a855f7", icon: "Clock", desc: "Оплатите, чтобы получить контакт продавца" },
+  paid:            { label: "Оплачен", color: "#06d6de", icon: "CreditCard", desc: "Договоритесь о встрече с продавцом" },
+  completed:       { label: "Завершён", color: "#4ade80", icon: "CheckCircle2", desc: "Сделка успешно закрыта" },
+  dispute:         { label: "Спор", color: "#ff6b2b", icon: "AlertTriangle", desc: "Разбирается модератором" },
+};
+
 /* ─── AUTH SCREEN ────────────────────────────────────────── */
 function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [city, setCity] = useState("");
+  const [cityInput, setCityInput] = useState("");
+  const [showCitySuggest, setShowCitySuggest] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const citySuggestions = cityInput.length > 0
+    ? CITIES.filter(c => c.toLowerCase().includes(cityInput.toLowerCase())).slice(0, 5)
+    : [];
 
   const submit = async () => {
     setError(""); setLoading(true);
     const r = mode === "login"
       ? await authApi.login(phone, password)
-      : await authApi.register(name, phone, password);
+      : await authApi.register(name, phone, password, city || cityInput);
     setLoading(false);
     if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
     localStorage.setItem("ff_token", r.data.token);
@@ -102,12 +157,37 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
           </div>
           <div className="space-y-3">
             {mode === "register" && (
-              <div>
-                <label className="text-white/50 text-sm mb-1.5 block">Имя</label>
-                <input value={name} onChange={e => setName(e.target.value)}
-                  className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none"
-                  placeholder="Ваше имя" />
-              </div>
+              <>
+                <div>
+                  <label className="text-white/50 text-sm mb-1.5 block">Имя</label>
+                  <input value={name} onChange={e => setName(e.target.value)}
+                    className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none"
+                    placeholder="Ваше имя" />
+                </div>
+                <div className="relative">
+                  <label className="text-white/50 text-sm mb-1.5 block">Город</label>
+                  <div className="glass rounded-xl px-4 py-3 flex items-center gap-2">
+                    <Icon name="MapPin" size={16} className="text-white/30 flex-shrink-0" />
+                    <input value={cityInput} onChange={e => { setCityInput(e.target.value); setCity(""); setShowCitySuggest(true); }}
+                      onFocus={() => setShowCitySuggest(true)}
+                      onBlur={() => setTimeout(() => setShowCitySuggest(false), 150)}
+                      className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none"
+                      placeholder="Начните вводить город..." />
+                    {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
+                  </div>
+                  {showCitySuggest && citySuggestions.length > 0 && (
+                    <div className="absolute z-20 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden border border-white/10">
+                      {citySuggestions.map(c => (
+                        <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:text-white transition-colors"
+                          style={{ background: "transparent" }}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
             <div>
               <label className="text-white/50 text-sm mb-1.5 block">Телефон</label>
@@ -222,6 +302,12 @@ function AuctionCard({ b, onBid, onLike }: { b: Bouquet; onBid: () => void; onLi
               <Icon name="Star" size={11} className="text-yellow-400 fill-yellow-400" />
               <span className="text-white/50 text-xs">{b.seller_rating?.toFixed(1)} · {b.seller_name}</span>
             </div>
+            {b.city && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <Icon name="MapPin" size={10} className="text-pink-400" />
+                <span className="text-white/40 text-xs">{b.city}{b.district ? `, ${b.district}` : ""}</span>
+              </div>
+            )}
           </div>
           <div className="text-right">
             <p className="gradient-text font-oswald text-xl font-bold">{formatPrice(b.current_price)}</p>
@@ -239,16 +325,74 @@ function AuctionCard({ b, onBid, onLike }: { b: Bouquet; onBid: () => void; onLi
   );
 }
 
+/* ─── CITY FILTER ────────────────────────────────────────── */
+function CityFilter({ city, district, onCity, onDistrict }: {
+  city: string; district: string;
+  onCity: (c: string) => void; onDistrict: (d: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState(city);
+  const suggestions = input.length > 0 ? CITIES.filter(c => c.toLowerCase().includes(input.toLowerCase())).slice(0, 5) : CITIES.slice(0, 5);
+  const districts = getDistricts(city);
+
+  return (
+    <div className="glass rounded-2xl p-3 mb-4">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <div className="flex items-center gap-2 glass rounded-xl px-3 py-2">
+            <Icon name="MapPin" size={14} className="text-pink-400 flex-shrink-0" />
+            <input value={input} onChange={e => { setInput(e.target.value); setOpen(true); if (!e.target.value) { onCity(""); onDistrict(""); }}}
+              onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+              className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none"
+              placeholder="Ваш город..." />
+            {city && <button onClick={() => { onCity(""); onDistrict(""); setInput(""); }} className="text-white/30 hover:text-white"><Icon name="X" size={12} /></button>}
+          </div>
+          {open && suggestions.length > 0 && (
+            <div className="absolute z-30 left-0 right-0 mt-1 glass-strong rounded-xl overflow-hidden border border-white/10">
+              {suggestions.map(c => (
+                <button key={c} onMouseDown={() => { onCity(c); onDistrict(""); setInput(c); setOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 transition-colors">
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {city && districts.length > 0 && (
+          <select value={district} onChange={e => onDistrict(e.target.value)}
+            className="glass rounded-xl px-2 py-2 text-sm text-white outline-none flex-1"
+            style={{ background: "rgba(255,255,255,0.05)" }}>
+            <option value="">Все районы</option>
+            {districts.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        )}
+      </div>
+      {city && (
+        <p className="text-white/30 text-xs mt-2 flex items-center gap-1">
+          <Icon name="Info" size={11} />
+          Передача лично — покупатель и продавец договариваются о встрече
+        </p>
+      )}
+    </div>
+  );
+}
+
 /* ─── AUCTIONS SCREEN ────────────────────────────────────── */
 function AuctionsScreen({ onBid, user }: { onBid: (b: Bouquet) => void; user: User | null }) {
   const [bouquets, setBouquets] = useState<Bouquet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [city, setCity] = useState(user?.city || "");
+  const [district, setDistrict] = useState("");
 
   const load = useCallback(async () => {
-    const r = await bouquetsApi.list({ status: "active", sort: "ends_at" });
+    const r = await bouquetsApi.list({
+      status: "active", sort: "ends_at",
+      city: city || undefined,
+      district: district || undefined,
+    });
     if (r.ok) setBouquets(r.data.bouquets);
     setLoading(false);
-  }, []);
+  }, [city, district]);
 
   useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id); }, [load]);
 
@@ -258,33 +402,33 @@ function AuctionsScreen({ onBid, user }: { onBid: (b: Bouquet) => void; user: Us
     await bouquetsApi.favorite(b.id, !b.liked);
   };
 
-  const handleBidDone = (id: number, amount: number) => {
-    setBouquets(prev => prev.map(b => b.id === id ? { ...b, current_price: amount, bids_count: b.bids_count + 1 } : b));
-  };
-
   return (
     <div className="animate-fade-in">
-      <div className="relative rounded-3xl overflow-hidden mb-6 p-6"
+      <div className="relative rounded-3xl overflow-hidden mb-4 p-5"
         style={{ background: "linear-gradient(135deg, rgba(255,61,139,0.2) 0%, rgba(168,85,247,0.2) 50%, rgba(255,107,43,0.12) 100%)", border: "1px solid rgba(255,61,139,0.2)" }}>
         <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full opacity-20 animate-spin-slow" style={{ background: "radial-gradient(circle, #ff3d8b, transparent)" }} />
         <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-green-400 text-xs font-medium">LIVE — {bouquets.length} активных аукционов</span>
+            <span className="text-green-400 text-xs font-medium">LIVE — {bouquets.length} аукционов</span>
           </div>
-          <h2 className="font-oswald text-3xl font-bold text-white mb-1">Живые <span className="gradient-text">букеты</span></h2>
-          <p className="text-white/50 text-sm">Свежие цветы по ценам ниже магазинных</p>
+          <h2 className="font-oswald text-2xl font-bold text-white">Живые <span className="gradient-text">букеты</span></h2>
+          <p className="text-white/40 text-xs mt-0.5">Самовывоз — без доставки, только личная встреча</p>
         </div>
       </div>
+
+      <CityFilter city={city} district={district} onCity={c => { setCity(c); setDistrict(""); }} onDistrict={setDistrict} />
 
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[1, 2].map(i => <div key={i} className="glass rounded-2xl h-64 animate-pulse" />)}
         </div>
       ) : bouquets.length === 0 ? (
-        <div className="text-center py-20">
+        <div className="text-center py-16">
           <span className="text-6xl block mb-4">🌸</span>
-          <p className="text-white/50 font-oswald text-xl">Пока нет активных аукционов</p>
+          <p className="text-white/50 font-oswald text-xl">
+            {city ? `В ${city} пока нет аукционов` : "Нет активных аукционов"}
+          </p>
           <p className="text-white/30 text-sm mt-2">Станьте первым продавцом!</p>
         </div>
       ) : (
@@ -314,12 +458,19 @@ function CatalogScreen({ user }: { user: User | null }) {
   const [sortBy, setSortBy] = useState<"price" | "rating">("price");
   const [priceMax, setPriceMax] = useState(5000);
   const [search, setSearch] = useState("");
+  const [city, setCity] = useState(user?.city || "");
+  const [district, setDistrict] = useState("");
 
   useEffect(() => {
     setLoading(true);
-    bouquetsApi.list({ status: "active", tag: activeTag !== "все" ? activeTag : undefined, sort: sortBy, max_price: priceMax })
-      .then(r => { if (r.ok) setBouquets(r.data.bouquets); setLoading(false); });
-  }, [activeTag, sortBy, priceMax]);
+    bouquetsApi.list({
+      status: "active",
+      tag: activeTag !== "все" ? activeTag : undefined,
+      sort: sortBy, max_price: priceMax,
+      city: city || undefined,
+      district: district || undefined,
+    }).then(r => { if (r.ok) setBouquets(r.data.bouquets); setLoading(false); });
+  }, [activeTag, sortBy, priceMax, city, district]);
 
   const filtered = search
     ? bouquets.filter(b => b.title.toLowerCase().includes(search.toLowerCase()) || (b.flowers || []).join(" ").includes(search.toLowerCase()))
@@ -334,6 +485,7 @@ function CatalogScreen({ user }: { user: User | null }) {
   return (
     <div className="animate-fade-in">
       <h2 className="font-oswald text-2xl font-bold text-white mb-4">Каталог букетов</h2>
+      <CityFilter city={city} district={district} onCity={c => { setCity(c); setDistrict(""); }} onDistrict={setDistrict} />
       <div className="glass rounded-2xl flex items-center gap-3 px-4 py-3 mb-4">
         <Icon name="Search" size={18} className="text-white/30 flex-shrink-0" />
         <input value={search} onChange={e => setSearch(e.target.value)}
@@ -425,6 +577,9 @@ function SellScreen({ user }: { user: User | null }) {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [sellCity, setSellCity] = useState(user?.city || "");
+  const [sellDistrict, setSellDistrict] = useState("");
+  const [meetPoint, setMeetPoint] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -444,6 +599,9 @@ function SellScreen({ user }: { user: User | null }) {
       freshness, image_urls: images,
       start_price: parseFloat(price) || 500,
       duration_hours: duration,
+      city: sellCity || undefined,
+      district: sellDistrict || undefined,
+      meet_point: meetPoint || undefined,
     });
     setLoading(false);
     if (!r.ok) { setError(r.data.error); return; }
@@ -552,6 +710,20 @@ function SellScreen({ user }: { user: User | null }) {
               ))}
             </div>
           </div>
+          <div>
+            <label className="text-white/50 text-sm mb-1.5 block">Город передачи</label>
+            <CityFilter
+              city={sellCity} district={sellDistrict}
+              onCity={c => { setSellCity(c); setSellDistrict(""); }}
+              onDistrict={setSellDistrict}
+            />
+          </div>
+          <div>
+            <label className="text-white/50 text-sm mb-1.5 block">Удобное место встречи <span className="text-white/30">(необязательно)</span></label>
+            <input value={meetPoint} onChange={e => setMeetPoint(e.target.value)}
+              className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none"
+              placeholder="Напр.: метро Сокольники, ТЦ Мега..." />
+          </div>
         </div>
       )}
 
@@ -561,7 +733,11 @@ function SellScreen({ user }: { user: User | null }) {
             <p className="text-white/50 text-sm font-medium">Подтверждение</p>
             {[["Название", title || "—"], ["Состав", flowers || "—"], ["Свежесть", freshness],
               ["Начальная цена", formatPrice(parseFloat(price) || 500)],
-              ["Длительность", `${duration} ч`], ["Фото", `${images.length} шт`]].map(([k, v]) => (
+              ["Длительность", `${duration} ч`], ["Фото", `${images.length} шт`],
+              ["Город", sellCity || "не указан"],
+              ...(sellDistrict ? [["Район", sellDistrict]] : []),
+              ...(meetPoint ? [["Место встречи", meetPoint]] : []),
+            ].map(([k, v]) => (
               <div key={k} className="flex justify-between text-sm">
                 <span className="text-white/40">{k}</span>
                 <span className="text-white font-medium">{v}</span>
@@ -569,7 +745,7 @@ function SellScreen({ user }: { user: User | null }) {
             ))}
           </div>
           <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(255,61,139,0.2)" }}>
-            {[["Комиссия платформы", "12% от суммы"], ["Выплата продавцу", "1–2 рабочих дня"], ["Способы вывода", "Карта, СБП, кошелёк"]].map(([k, v]) => (
+            {[["Комиссия платформы", "12% от суммы"], ["Выплата продавцу", "после подтверждения"], ["Передача букета", "лично, без курьера"], ["Способы вывода", "Карта, СБП, кошелёк"]].map(([k, v]) => (
               <div key={k} className="flex justify-between text-sm mb-2 last:mb-0">
                 <span className="text-white/40">{k}</span>
                 <span className="text-white/70">{v}</span>
@@ -594,61 +770,272 @@ function SellScreen({ user }: { user: User | null }) {
 }
 
 /* ─── ORDERS SCREEN ──────────────────────────────────────── */
-function OrdersScreen({ user }: { user: User | null }) {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+
+/* ─── DEALS SCREEN (ESCROW) ──────────────────────────────── */
+function DealsScreen({ user }: { user: User | null }) {
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [active, setActive] = useState<Deal | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [disputeText, setDisputeText] = useState("");
+  const [showDispute, setShowDispute] = useState(false);
+
+  const load = async () => {
     if (!user) { setLoading(false); return; }
-    profileApi.orders().then(r => { if (r.ok) setOrders(r.data.orders); setLoading(false); });
-  }, [user]);
+    const r = await escrowApi.myDeals();
+    if (r.ok) setDeals(r.data.deals);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [user]);
+
+  const doConfirm = async (deal: Deal) => {
+    setActionLoading(true); setMsg("");
+    const r = await escrowApi.confirm(deal.id);
+    setActionLoading(false);
+    setMsg(r.ok ? r.data.message : r.data.error);
+    if (r.ok) load();
+  };
+
+  const doDispute = async (deal: Deal) => {
+    if (!disputeText.trim()) return;
+    setActionLoading(true); setMsg("");
+    const r = await escrowApi.dispute(deal.id, disputeText);
+    setActionLoading(false);
+    setMsg(r.ok ? r.data.message : r.data.error);
+    if (r.ok) { setShowDispute(false); load(); }
+  };
 
   if (!user) return (
     <div className="text-center py-20">
-      <span className="text-5xl block mb-4">📦</span>
-      <p className="text-white/50 font-oswald text-xl">Войдите, чтобы видеть заказы</p>
+      <span className="text-5xl block mb-4">🤝</span>
+      <p className="text-white/50 font-oswald text-xl">Войдите, чтобы видеть сделки</p>
     </div>
   );
 
-  const STATUS_MAP: Record<string, { color: string; label: string; icon: string }> = {
-    pending: { color: "#a855f7", label: "Ожидает", icon: "Clock" },
-    paid: { color: "#06d6de", label: "Оплачен", icon: "CreditCard" },
-    in_transit: { color: "#06d6de", label: "В пути", icon: "Truck" },
-    delivered: { color: "#4ade80", label: "Доставлен", icon: "CheckCircle2" },
-    completed: { color: "#4ade80", label: "Завершён", icon: "Trophy" },
-  };
+  if (active) {
+    const st = ESCROW_STATUS[active.escrow_status] || { label: active.escrow_status, color: "#fff", icon: "Circle", desc: "" };
+    const timeLeft = active.auto_confirm_at
+      ? Math.max(0, Math.floor((new Date(active.auto_confirm_at).getTime() - Date.now()) / 3600000))
+      : null;
+    return (
+      <div className="animate-fade-in">
+        <button onClick={() => { setActive(null); setMsg(""); setShowDispute(false); }}
+          className="flex items-center gap-2 text-white/50 hover:text-white mb-4 transition-colors">
+          <Icon name="ArrowLeft" size={18} /> Назад к сделкам
+        </button>
+
+        {/* Шапка сделки */}
+        <div className="glass rounded-2xl overflow-hidden mb-4">
+          {active.image_urls?.[0] && <img src={active.image_urls[0]} className="w-full h-40 object-cover" />}
+          <div className="p-4">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h3 className="font-oswald text-xl font-bold text-white">{active.title}</h3>
+                {active.city && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <Icon name="MapPin" size={12} className="text-pink-400" />
+                    <span className="text-white/50 text-xs">{active.city}{active.district ? `, ${active.district}` : ""}</span>
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="gradient-text font-oswald text-xl font-bold">{formatPrice(active.amount)}</p>
+                <p className="text-white/40 text-xs">комиссия {formatPrice(active.commission)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl" style={{ background: `${st.color}15`, border: `1px solid ${st.color}40` }}>
+              <Icon name={st.icon as "Clock"} size={16} style={{ color: st.color }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: st.color }}>{st.label}</p>
+                <p className="text-white/40 text-xs">{st.desc}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Контакты (после оплаты) */}
+        {active.escrow_status === "paid" && (
+          <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(6,214,222,0.3)" }}>
+            <p className="text-white/50 text-xs mb-3 font-medium uppercase tracking-wide">Контакты для встречи</p>
+            {active.is_buyer && active.seller_phone && (
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-white/40 text-xs">Продавец</p>
+                  <p className="text-white font-medium">{active.seller_name}</p>
+                </div>
+                <a href={`tel:${active.seller_phone}`}
+                  className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
+                  <Icon name="Phone" size={14} />
+                  {active.seller_phone}
+                </a>
+              </div>
+            )}
+            {active.is_seller && active.buyer_phone && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-white/40 text-xs">Покупатель</p>
+                  <p className="text-white font-medium">{active.buyer_name}</p>
+                </div>
+                <a href={`tel:${active.buyer_phone}`}
+                  className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
+                  <Icon name="Phone" size={14} />
+                  {active.buyer_phone}
+                </a>
+              </div>
+            )}
+            {timeLeft !== null && timeLeft > 0 && active.is_buyer && (
+              <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-2">
+                <Icon name="Clock" size={14} className="text-white/30" />
+                <p className="text-white/30 text-xs">Авто-подтверждение через {timeLeft} ч если не нажмёте кнопку</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Действия покупателя */}
+        {active.is_buyer && active.escrow_status === "paid" && (
+          <div className="space-y-3 mb-4">
+            <button onClick={() => doConfirm(active)} disabled={actionLoading}
+              className="btn-gradient w-full rounded-2xl py-4 font-oswald text-lg tracking-wide disabled:opacity-50 flex items-center justify-center gap-2">
+              <Icon name="CheckCircle2" size={20} />
+              {actionLoading ? "..." : "ПОДТВЕРДИТЬ ПОЛУЧЕНИЕ"}
+            </button>
+            <p className="text-white/30 text-xs text-center">
+              Нажмите только после того как физически получили букет
+            </p>
+            {!showDispute ? (
+              <button onClick={() => setShowDispute(true)}
+                className="w-full glass rounded-2xl py-3 text-sm text-white/50 hover:text-white transition-colors">
+                Есть проблема с букетом
+              </button>
+            ) : (
+              <div className="glass rounded-2xl p-4" style={{ border: "1px solid rgba(255,107,43,0.3)" }}>
+                <p className="text-white/60 text-sm mb-2">Опишите проблему:</p>
+                <textarea value={disputeText} onChange={e => setDisputeText(e.target.value)}
+                  className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none mb-3 resize-none"
+                  rows={3} placeholder="Букет не получен, не соответствует описанию..." />
+                <div className="flex gap-2">
+                  <button onClick={() => setShowDispute(false)} className="flex-1 glass rounded-xl py-2 text-sm text-white/50">Отмена</button>
+                  <button onClick={() => doDispute(active)} disabled={actionLoading || !disputeText.trim()}
+                    className="flex-1 rounded-xl py-2 text-sm font-semibold text-white disabled:opacity-40"
+                    style={{ background: "var(--neon-orange)" }}>
+                    {actionLoading ? "..." : "Открыть спор"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Статус для продавца */}
+        {active.is_seller && active.escrow_status === "paid" && (
+          <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(255,61,139,0.2)" }}>
+            <div className="flex items-start gap-3">
+              <Icon name="Info" size={16} className="text-pink-400 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-white/60 space-y-1">
+                <p>Передайте букет покупателю лично. Деньги поступят на баланс после его подтверждения.</p>
+                <p className="text-white/40">Получите: <span className="text-green-400 font-semibold">{formatPrice(active.amount - active.commission)}</span></p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {active.escrow_status === "completed" && (
+          <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(74,222,128,0.3)" }}>
+            <div className="flex items-center gap-3">
+              <Icon name="CheckCircle2" size={20} className="text-green-400" />
+              <div>
+                <p className="text-white font-medium text-sm">Сделка успешно завершена</p>
+                {active.is_seller && <p className="text-green-400 text-xs">{formatPrice(active.amount - active.commission)} зачислено на баланс</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {active.escrow_status === "dispute" && (
+          <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(255,107,43,0.3)" }}>
+            <div className="flex items-start gap-3">
+              <Icon name="AlertTriangle" size={16} style={{ color: "var(--neon-orange)" }} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-white font-medium text-sm">Открыт спор</p>
+                <p className="text-white/50 text-xs mt-0.5">{active.dispute_reason}</p>
+                <p className="text-white/30 text-xs mt-1">Модератор рассмотрит в течение 24 часов</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {msg && <p className={`text-sm text-center p-3 rounded-xl mb-3 ${msg.includes("ошибка") || msg.includes("Не") || msg.includes("нельзя") ? "text-red-400" : "text-green-400"}`}
+          style={{ background: "rgba(255,255,255,0.05)" }}>{msg}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in">
-      <h2 className="font-oswald text-2xl font-bold text-white mb-1">Мои заказы</h2>
-      <p className="text-white/40 text-sm mb-6">История покупок и статус доставки</p>
+      <h2 className="font-oswald text-2xl font-bold text-white mb-1">Мои сделки</h2>
+      <p className="text-white/40 text-sm mb-5">Безопасная передача букетов</p>
+
+      {/* Схема работы */}
+      <div className="glass rounded-2xl p-4 mb-5">
+        <p className="text-white/50 text-xs font-medium mb-3 uppercase tracking-wide">Как работает безопасная сделка</p>
+        <div className="space-y-2">
+          {[
+            { icon: "CreditCard", color: "#a855f7", text: "Победитель оплачивает — деньги замораживаются у платформы" },
+            { icon: "Phone", color: "#06d6de", text: "Открываются телефоны — договоритесь о встрече" },
+            { icon: "Handshake", color: "#ff3d8b", text: "Передача лично — без курьеров и доставки" },
+            { icon: "CheckCircle2", color: "#4ade80", text: "Покупатель подтверждает — деньги уходят продавцу" },
+          ].map((s, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${s.color}20` }}>
+                <Icon name={s.icon as "CreditCard"} size={13} style={{ color: s.color }} />
+              </div>
+              <p className="text-white/60 text-xs">{s.text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex flex-col gap-3">{[1,2].map(i => <div key={i} className="glass rounded-2xl h-20 animate-pulse" />)}</div>
-      ) : orders.length === 0 ? (
-        <div className="text-center py-20">
-          <span className="text-5xl block mb-4">🛍</span>
-          <p className="text-white/50">Вы ещё ничего не купили</p>
+      ) : deals.length === 0 ? (
+        <div className="text-center py-16">
+          <span className="text-5xl block mb-4">🤝</span>
+          <p className="text-white/50">Активных сделок нет</p>
+          <p className="text-white/30 text-xs mt-1">Участвуйте в аукционах!</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {orders.map((o, i) => {
-            const st = STATUS_MAP[o.status] || { color: "#ffffff40", label: o.status, icon: "Circle" };
+          {deals.map((d, i) => {
+            const st = ESCROW_STATUS[d.escrow_status] || { label: d.escrow_status, color: "#fff", icon: "Circle", desc: "" };
             return (
-              <div key={o.id} className={`glass rounded-2xl p-4 card-hover animate-fade-in-up delay-${Math.min((i+1)*100,500)}`}>
+              <div key={d.id} onClick={() => { setActive(d); setMsg(""); }}
+                className={`glass rounded-2xl p-4 card-hover cursor-pointer animate-fade-in-up delay-${Math.min((i+1)*100, 500)}`}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${st.color}20` }}>
-                    <Icon name={st.icon as "Truck"} size={18} style={{ color: st.color }} />
-                  </div>
+                  {d.image_urls?.[0]
+                    ? <img src={d.image_urls[0]} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                    : <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0" style={{ background: "rgba(255,61,139,0.1)" }}>🌸</div>
+                  }
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="font-medium text-white truncate">{o.title}</p>
-                      <span className="font-oswald font-bold text-white ml-2">{formatPrice(o.amount)}</span>
+                      <p className="text-white font-medium text-sm truncate">{d.title}</p>
+                      <span className="font-oswald font-bold ml-2 flex-shrink-0" style={{ color: st.color }}>{formatPrice(d.amount)}</span>
                     </div>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <span className="text-xs font-medium" style={{ color: st.color }}>{st.label}</span>
-                      <span className="text-white/30 text-xs">{timeAgo(o.created_at)}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs" style={{ color: st.color }}>{st.label}</span>
+                      <span className="text-white/20">·</span>
+                      <span className="text-white/30 text-xs">{d.is_buyer ? `от ${d.seller_name}` : `покупатель ${d.buyer_name}`}</span>
                     </div>
+                    {d.city && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Icon name="MapPin" size={10} className="text-white/30" />
+                        <span className="text-white/30 text-xs">{d.city}</span>
+                      </div>
+                    )}
                   </div>
+                  <Icon name="ChevronRight" size={16} className="text-white/20 flex-shrink-0" />
                 </div>
               </div>
             );
@@ -955,7 +1342,7 @@ export default function Index() {
         {activeTab === "auctions" && <AuctionsScreen onBid={setBidModal} user={user} />}
         {activeTab === "catalog" && <CatalogScreen user={user} />}
         {activeTab === "sell" && <SellScreen user={user} />}
-        {activeTab === "orders" && <OrdersScreen user={user} />}
+        {activeTab === "deals" && <DealsScreen user={user} />}
         {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} />}
       </main>
 

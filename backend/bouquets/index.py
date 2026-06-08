@@ -80,14 +80,24 @@ def handler(event: dict, context) -> dict:
             else:
                 fav_col = "false as liked"
 
+            city_filter = qs.get("city")
+            district_filter = qs.get("district")
+            if city_filter:
+                conditions.append("b.city = %s")
+                params.append(city_filter)
+            if district_filter:
+                conditions.append("b.district = %s")
+                params.append(district_filter)
+            where_sql = " AND ".join(conditions)
+
             cols = ["id","seller_id","seller_name","seller_rating","title","description","flowers",
                     "freshness","image_urls","start_price","current_price","min_step","bids_count",
-                    "status","ends_at","created_at","liked"]
+                    "status","ends_at","created_at","liked","city","district","meet_point"]
             sql = (
                 f"SELECT b.id, b.seller_id, u.name, u.rating, "
                 f"b.title, b.description, b.flowers, b.freshness, b.image_urls, "
                 f"b.start_price, b.current_price, b.min_step, b.bids_count, b.status, b.ends_at, b.created_at, "
-                f"{fav_col} "
+                f"{fav_col}, b.city, b.district, b.meet_point "
                 f"FROM {SCHEMA}.bouquets b "
                 f"JOIN {SCHEMA}.users u ON u.id = b.seller_id "
                 f"WHERE {where_sql} "
@@ -109,12 +119,12 @@ def handler(event: dict, context) -> dict:
                 fav_col = "false as liked"
             cols = ["id","seller_id","seller_name","seller_rating","title","description","flowers",
                     "freshness","image_urls","start_price","current_price","min_step","bids_count",
-                    "status","ends_at","created_at","liked"]
+                    "status","ends_at","created_at","liked","city","district","meet_point"]
             with conn.cursor() as cur:
                 cur.execute(
                     f"SELECT b.id, b.seller_id, u.name, u.rating, b.title, b.description, b.flowers, "
                     f"b.freshness, b.image_urls, b.start_price, b.current_price, b.min_step, b.bids_count, "
-                    f"b.status, b.ends_at, b.created_at, {fav_col} "
+                    f"b.status, b.ends_at, b.created_at, {fav_col}, b.city, b.district, b.meet_point "
                     f"FROM {SCHEMA}.bouquets b JOIN {SCHEMA}.users u ON u.id = b.seller_id "
                     f"WHERE b.id = %s", (bid,)
                 )
@@ -134,15 +144,18 @@ def handler(event: dict, context) -> dict:
             start_price = float(body.get("start_price", 500))
             duration_hours = int(body.get("duration_hours", 3))
             description = body.get("description", "")
+            city = body.get("city", "").strip() or None
+            district = body.get("district", "").strip() or None
+            meet_point = body.get("meet_point", "").strip() or None
             if not title:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Укажите название"})}
             with conn.cursor() as cur:
                 cur.execute(
                     f"INSERT INTO {SCHEMA}.bouquets "
-                    f"(seller_id, title, description, flowers, freshness, image_urls, start_price, current_price, ends_at) "
-                    f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW() + INTERVAL '{duration_hours} hours') "
+                    f"(seller_id, title, description, flowers, freshness, image_urls, start_price, current_price, ends_at, city, district, meet_point) "
+                    f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW() + INTERVAL '{duration_hours} hours', %s, %s, %s) "
                     f"RETURNING id",
-                    (user["id"], title, description, flowers, freshness, image_urls, start_price, start_price)
+                    (user["id"], title, description, flowers, freshness, image_urls, start_price, start_price, city, district, meet_point)
                 )
                 new_id = cur.fetchone()[0]
                 cur.execute(
