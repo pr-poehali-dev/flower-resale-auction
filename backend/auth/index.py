@@ -9,7 +9,7 @@ SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p84229990_flower_resale_auctio")
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, X-Authorization, Authorization",
 }
 
 def get_conn():

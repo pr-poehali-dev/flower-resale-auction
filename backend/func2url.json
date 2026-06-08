@@ -4,6 +4,5 @@
   "escrow": "https://functions.poehali.dev/e88eb917-34d3-4efd-b11e-fdea4f137322",
   "profile": "https://functions.poehali.dev/e0242723-8c00-4366-807f-86615a61bb2e",
   "upload": "https://functions.poehali.dev/3da42e9b-d4f0-4fa7-91fa-b25481552ce1",
-  "auth": "https://functions.poehali.dev/160e4bcc-5354-4955-b417-dcd385abfe11",
-  "bouquets": "https://functions.poehali.dev/c984e344-489c-4df8-b265-e621f407f1c2"
+  "auth": "https://functions.poehali.dev/160e4bcc-5354-4955-b417-dcd385abfe11"
 }
