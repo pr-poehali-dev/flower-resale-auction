@@ -1,6 +1,10 @@
 """Аукционы и каталог: список, детали, создание букета, ставка, избранное"""
 import json
 import os
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import psycopg2
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p84229990_flower_resale_auctio")
@@ -9,9 +13,47 @@ CORS = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Authorization, Authorization",
 }
+SITE_EMAIL = "flowerflip@flowerflip.ru"
+SITE_URL = "https://flowerflip.ru"
 
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
+
+def send_bid_notification(seller_email: str, seller_name: str, bouquet_title: str, bidder_name: str, amount: float):
+    """Отправляет продавцу уведомление о новой ставке"""
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    if not smtp_password or not seller_email:
+        return
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"🌸 Новая ставка на «{bouquet_title}» — FlowerFlip"
+    msg["From"] = f"FlowerFlip <{SITE_EMAIL}>"
+    msg["To"] = seller_email
+    amount_str = f"{amount:,.0f}".replace(",", " ")
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0f0a18;color:#fff;border-radius:16px;">
+      <h1 style="color:#ff3d8b;font-size:22px;margin-bottom:4px;">🌸 FlowerFlip</h1>
+      <p style="color:#aaa;font-size:13px;margin-top:0">Аукцион букетов</p>
+      <div style="background:rgba(255,61,139,0.1);border:1px solid rgba(255,61,139,0.3);border-radius:12px;padding:20px;margin:20px 0;">
+        <p style="color:#fff;font-size:16px;margin:0 0 8px">Привет, {seller_name}!</p>
+        <p style="color:#ccc;margin:0">На ваш букет <strong style="color:#ff3d8b">«{bouquet_title}»</strong> сделана новая ставка</p>
+      </div>
+      <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:16px;margin-bottom:20px;">
+        <p style="color:#aaa;font-size:12px;margin:0 0 4px">СУММА СТАВКИ</p>
+        <p style="color:#ff3d8b;font-size:28px;font-weight:bold;margin:0">{amount_str} ₽</p>
+        <p style="color:#777;font-size:13px;margin:8px 0 0">Покупатель: {bidder_name}</p>
+      </div>
+      <a href="{SITE_URL}" style="display:inline-block;background:linear-gradient(135deg,#ff3d8b,#a855f7);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:bold;font-size:15px;">Перейти на сайт →</a>
+      <p style="color:#444;font-size:11px;margin-top:24px;">Вы получили это письмо потому что являетесь продавцом на FlowerFlip</p>
+    </div>
+    """
+    msg.attach(MIMEText(html, "html"))
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("mail.hosting.reg.ru", 465, context=context) as server:
+            server.login(SITE_EMAIL, smtp_password)
+            server.sendmail(SITE_EMAIL, seller_email, msg.as_string())
+    except Exception as e:
+        print(f"[SMTP BID ERROR] {e}")
 
 def finalize_expired_auctions(conn):
     """Автозавершение аукционов, у которых истекло время.
@@ -211,7 +253,11 @@ def handler(event: dict, context) -> dict:
             amount = float(body.get("amount", 0))
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT current_price, min_step, status, seller_id FROM {SCHEMA}.bouquets WHERE id = %s",
+                    f"SELECT b.current_price, b.min_step, b.status, b.seller_id, b.title, "
+                    f"u.email, u.name "
+                    f"FROM {SCHEMA}.bouquets b "
+                    f"JOIN {SCHEMA}.users u ON u.id = b.seller_id "
+                    f"WHERE b.id = %s",
                     (bouquet_id,)
                 )
                 b = cur.fetchone()
@@ -234,6 +280,9 @@ def handler(event: dict, context) -> dict:
                     (amount, bouquet_id)
                 )
             conn.commit()
+            # Уведомляем продавца по email (не блокирует ответ)
+            seller_email, seller_name, bouquet_title = b[5], b[6], b[4]
+            send_bid_notification(seller_email, seller_name, bouquet_title, user["name"], amount)
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "new_price": amount})}
 
         # POST favorite
