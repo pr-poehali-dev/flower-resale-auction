@@ -692,6 +692,7 @@ function CityFilter({ city, district, onCity, onDistrict }: {
 }) {
   const cities = useCities();
   const [open, setOpen] = useState(false);
+  const [distOpen, setDistOpen] = useState(false);
   const [input, setInput] = useState(city);
   const suggestions = (input.length > 0 ? cities.filter(c => c.toLowerCase().includes(input.toLowerCase())) : cities).slice(0, 50);
   const districts = getDistricts(city);
@@ -721,12 +722,30 @@ function CityFilter({ city, district, onCity, onDistrict }: {
           )}
         </div>
         {city && districts.length > 0 && (
-          <select value={district} onChange={e => onDistrict(e.target.value)}
-            className="glass rounded-xl px-2 py-2 text-sm text-white outline-none flex-1"
-            style={{ background: "rgba(255,255,255,0.05)" }}>
-            <option value="">Все районы</option>
-            {districts.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <div className="relative flex-1">
+            <button onClick={() => setDistOpen(v => !v)} onBlur={() => setTimeout(() => setDistOpen(false), 150)}
+              className="w-full flex items-center justify-between gap-1 glass rounded-xl px-3 py-2 text-sm outline-none"
+              style={{ color: district ? "#fff" : "rgba(255,255,255,0.4)" }}>
+              <span className="truncate">{district || "Все районы"}</span>
+              <Icon name="ChevronDown" size={13} className="flex-shrink-0 text-white/30" />
+            </button>
+            {distOpen && (
+              <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl overflow-y-auto border border-white/10 shadow-2xl"
+                style={{ background: "#150f1c", maxHeight: 220, backdropFilter: "blur(12px)" }}>
+                <button onMouseDown={() => { onDistrict(""); setDistOpen(false); }}
+                  className="w-full text-left px-3 py-2.5 text-sm text-white/50 hover:bg-pink-500/20 transition-colors border-b border-white/5">
+                  Все районы
+                </button>
+                {districts.map(d => (
+                  <button key={d} onMouseDown={() => { onDistrict(d); setDistOpen(false); }}
+                    className="w-full text-left px-3 py-2.5 text-sm hover:bg-pink-500/20 transition-colors border-b border-white/5 last:border-0"
+                    style={{ color: district === d ? "var(--neon-pink)" : "rgba(255,255,255,0.8)" }}>
+                    {d}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
       {city && (
