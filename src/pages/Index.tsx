@@ -818,7 +818,9 @@ function CatalogScreen({ user }: { user: User | null }) {
   const [loading, setLoading] = useState(true);
   const [activeTag, setActiveTag] = useState("все");
   const [sortBy, setSortBy] = useState<"price" | "rating">("price");
-  const [priceMax, setPriceMax] = useState(5000);
+  const PRICE_CAP = 1000000;
+  const [priceMax, setPriceMax] = useState(PRICE_CAP);
+  const noPriceLimit = priceMax >= PRICE_CAP;
   const [search, setSearch] = useState("");
   const [city, setCity] = useState(user?.city || "");
   const [district, setDistrict] = useState("");
@@ -828,11 +830,12 @@ function CatalogScreen({ user }: { user: User | null }) {
     bouquetsApi.list({
       status: "active",
       tag: activeTag !== "все" ? activeTag : undefined,
-      sort: sortBy, max_price: priceMax,
+      sort: sortBy,
+      max_price: noPriceLimit ? undefined : priceMax,
       city: city || undefined,
       district: district || undefined,
     }).then(r => { if (r.ok) setBouquets(r.data.bouquets); setLoading(false); });
-  }, [activeTag, sortBy, priceMax, city, district]);
+  }, [activeTag, sortBy, priceMax, noPriceLimit, city, district]);
 
   const filtered = search
     ? bouquets.filter(b => b.title.toLowerCase().includes(search.toLowerCase()) || (b.flowers || []).join(" ").includes(search.toLowerCase()))
@@ -874,10 +877,18 @@ function CatalogScreen({ user }: { user: User | null }) {
       <div className="glass rounded-2xl p-4 mb-5">
         <div className="flex justify-between items-center mb-2">
           <span className="text-white/50 text-sm">Макс. цена</span>
-          <span className="gradient-text font-oswald font-bold text-lg">{formatPrice(priceMax)}</span>
+          <span className="gradient-text font-oswald font-bold text-lg">
+            {noPriceLimit ? "Без ограничения" : formatPrice(priceMax)}
+          </span>
         </div>
-        <input type="range" min={500} max={5000} step={100} value={priceMax}
+        <input type="range" min={500} max={PRICE_CAP} step={500} value={priceMax}
           onChange={e => setPriceMax(Number(e.target.value))} className="w-full accent-pink-500" />
+        {!noPriceLimit && (
+          <button onClick={() => setPriceMax(PRICE_CAP)}
+            className="text-pink-400 text-xs mt-2 hover:text-pink-300 transition-colors">
+            Снять ограничение цены
+          </button>
+        )}
       </div>
       <div className="flex items-center justify-between mb-3">
         <span className="text-white/50 text-sm">Найдено: {filtered.length} букетов</span>
