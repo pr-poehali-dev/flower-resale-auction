@@ -129,17 +129,28 @@ def handler(event: dict, context) -> dict:
             if not user:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
             other_id = qs.get("other_id")
+            bouquet_id = qs.get("bouquet_id")
             if not other_id:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "other_id required"})}
             uid = user["id"]
             with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT m.id, m.sender_id, m.text, m.created_at, m.is_read "
-                    f"FROM {SCHEMA}.messages m "
-                    f"WHERE (m.sender_id = %s AND m.receiver_id = %s) OR (m.sender_id = %s AND m.receiver_id = %s) "
-                    f"ORDER BY m.created_at ASC LIMIT 100",
-                    (uid, other_id, other_id, uid)
-                )
+                if bouquet_id:
+                    cur.execute(
+                        f"SELECT m.id, m.sender_id, m.text, m.created_at, m.is_read "
+                        f"FROM {SCHEMA}.messages m "
+                        f"WHERE ((m.sender_id = %s AND m.receiver_id = %s) OR (m.sender_id = %s AND m.receiver_id = %s)) "
+                        f"AND m.bouquet_id = %s "
+                        f"ORDER BY m.created_at ASC LIMIT 100",
+                        (uid, other_id, other_id, uid, bouquet_id)
+                    )
+                else:
+                    cur.execute(
+                        f"SELECT m.id, m.sender_id, m.text, m.created_at, m.is_read "
+                        f"FROM {SCHEMA}.messages m "
+                        f"WHERE (m.sender_id = %s AND m.receiver_id = %s) OR (m.sender_id = %s AND m.receiver_id = %s) "
+                        f"ORDER BY m.created_at ASC LIMIT 100",
+                        (uid, other_id, other_id, uid)
+                    )
                 rows = cur.fetchall()
                 cur.execute(
                     f"UPDATE {SCHEMA}.messages SET is_read = true WHERE receiver_id = %s AND sender_id = %s",

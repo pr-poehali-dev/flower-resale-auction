@@ -115,7 +115,11 @@ export const profileApi = {
     return req(`${URLS.profile}/?${qs}`);
   },
   chats: () => req(`${URLS.profile}/?action=chats`),
-  messages: (other_id: number) => req(`${URLS.profile}/?action=messages&other_id=${other_id}`),
+  messages: (other_id: number, bouquet_id?: number) => {
+    const qs = new URLSearchParams({ action: "messages", other_id: String(other_id) });
+    if (bouquet_id) qs.set("bouquet_id", String(bouquet_id));
+    return req(`${URLS.profile}/?${qs}`);
+  },
   sendMessage: (receiver_id: number, text: string, bouquet_id?: number) =>
     req(`${URLS.profile}/?action=send_message`, { method: "POST", body: JSON.stringify({ action: "send_message", receiver_id, text, bouquet_id }) }),
   withdraw: (amount: number, method?: string, details?: string) =>

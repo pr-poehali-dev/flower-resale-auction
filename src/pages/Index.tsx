@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi, adminApi, paymentApi } from "@/lib/api";
+import { OnboardingTour, useOnboarding } from "@/components/OnboardingTour";
 import { useCities } from "@/lib/cities";
 
 /* ─── TYPES ─────────────────────────────────────────────── */
@@ -100,6 +101,9 @@ const ESCROW_STATUS: Record<string, { label: string; color: string; icon: string
   paid:            { label: "Оплачен", color: "#06d6de", icon: "CreditCard", desc: "Договоритесь о встрече с продавцом" },
   completed:       { label: "Завершён", color: "#4ade80", icon: "CheckCircle2", desc: "Сделка успешно закрыта" },
   dispute:         { label: "Спор", color: "#ff6b2b", icon: "AlertTriangle", desc: "Разбирается модератором" },
+  archived:        { label: "Архив", color: "#6b7280", icon: "Archive", desc: "Сделка в архиве" },
+  cancelled:       { label: "Отменён", color: "#6b7280", icon: "XCircle", desc: "Аукцион был снят" },
+  expired:         { label: "Истёк", color: "#6b7280", icon: "Clock", desc: "Аукцион завершился без ставок" },
 };
 
 /* ─── INSTALL BANNER ─────────────────────────────────────── */
@@ -1190,6 +1194,10 @@ function DealsScreen({ user }: { user: User | null }) {
   const [msg, setMsg] = useState("");
   const [disputeText, setDisputeText] = useState("");
   const [showDispute, setShowDispute] = useState(false);
+  const [dealMessages, setDealMessages] = useState<Message[]>([]);
+  const [dealChatText, setDealChatText] = useState("");
+  const [dealChatSending, setDealChatSending] = useState(false);
+  const dealChatBottomRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     if (!user) { setLoading(false); return; }
@@ -1198,6 +1206,33 @@ function DealsScreen({ user }: { user: User | null }) {
     setLoading(false);
   };
   useEffect(() => { load(); }, [user]);
+
+  const loadDealChat = useCallback(async (deal: Deal) => {
+    if (!user) return;
+    const otherId = deal.is_buyer ? deal.seller_id : deal.buyer_id;
+    const bouquetId = deal.id; // orders.id → связан с bouquet через join, но используем bouquet через deal title
+    // Получаем messages по other_id — все сообщения между двумя пользователями по этой сделке
+    const r = await profileApi.messages(otherId);
+    if (r.ok) setDealMessages(r.data.messages);
+  }, [user]);
+
+  useEffect(() => {
+    if (active) { setDealMessages([]); setDealChatText(""); loadDealChat(active); }
+  }, [active, loadDealChat]);
+
+  useEffect(() => { dealChatBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [dealMessages]);
+
+  const sendDealMessage = async () => {
+    if (!active || !dealChatText.trim() || dealChatSending || !user) return;
+    setDealChatSending(true);
+    const otherId = active.is_buyer ? active.seller_id : active.buyer_id;
+    const r = await profileApi.sendMessage(otherId, dealChatText.trim());
+    setDealChatSending(false);
+    if (r.ok) {
+      setDealMessages(prev => [...prev, { id: r.data.id, sender_id: user.id, text: dealChatText.trim(), created_at: r.data.created_at, is_read: false }]);
+      setDealChatText("");
+    }
+  };
 
   const doConfirm = async (deal: Deal) => {
     setActionLoading(true); setMsg("");
@@ -1378,6 +1413,45 @@ function DealsScreen({ user }: { user: User | null }) {
 
         {msg && <p className={`text-sm text-center p-3 rounded-xl mb-3 ${msg.includes("ошибка") || msg.includes("Не") || msg.includes("нельзя") ? "text-red-400" : "text-green-400"}`}
           style={{ background: "rgba(255,255,255,0.05)" }}>{msg}</p>}
+
+        {/* Переписка по сделке */}
+        {(active.escrow_status === "paid" || active.escrow_status === "completed" || active.escrow_status === "dispute") && (
+          <div className="glass rounded-2xl p-4 mb-4">
+            <p className="text-white/50 text-xs mb-3 font-medium uppercase tracking-wide flex items-center gap-2">
+              <Icon name="MessageCircle" size={13} />
+              Переписка по сделке
+            </p>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1 mb-3">
+              {dealMessages.length === 0
+                ? <p className="text-white/20 text-xs text-center py-4">Нет сообщений</p>
+                : dealMessages.map(m => (
+                  <div key={m.id} className={`flex ${m.sender_id === user!.id ? "justify-end" : "justify-start"}`}>
+                    <div className="max-w-[80%] px-3 py-2 rounded-2xl text-sm"
+                      style={m.sender_id === user!.id
+                        ? { background: "var(--grad-main)", color: "#fff" }
+                        : { background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.85)" }}>
+                      <p>{m.text}</p>
+                      <p className="text-xs mt-0.5 opacity-50">{timeAgo(m.created_at)}</p>
+                    </div>
+                  </div>
+                ))
+              }
+              <div ref={dealChatBottomRef} />
+            </div>
+            {active.escrow_status !== "completed" && active.escrow_status !== "dispute" && (
+              <div className="flex gap-2">
+                <input value={dealChatText} onChange={e => setDealChatText(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && sendDealMessage()}
+                  className="flex-1 glass rounded-xl px-3 py-2.5 text-white placeholder:text-white/30 text-sm outline-none"
+                  placeholder="Сообщение продавцу..." />
+                <button onClick={sendDealMessage} disabled={dealChatSending || !dealChatText.trim()}
+                  className="btn-gradient w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 disabled:opacity-40">
+                  <Icon name="Send" size={14} className="text-white" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -1518,7 +1592,7 @@ function ChatWindow({ chat, user, onBack }: { chat: Chat; user: User; onBack: ()
 }
 
 /* ─── PROFILE SCREEN ─────────────────────────────────────── */
-function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => void }) {
+function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onLogout: () => void; onStartTour?: () => void }) {
   const [tab, setTab] = useState<"about" | "reviews" | "chat">("about");
   const [reviews, setReviews] = useState<Review[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -1860,6 +1934,19 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
                 <Icon name="Clock" size={13} className="text-white/20 flex-shrink-0" />
                 <p className="text-white/25 text-xs">Ответ в течение 24 часов в рабочие дни</p>
               </div>
+              {onStartTour && (
+                <button onClick={onStartTour}
+                  className="flex items-center gap-3 glass rounded-xl px-4 py-3 w-full hover:bg-white/5 transition-colors group">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(168,85,247,0.15)" }}>
+                    <Icon name="GraduationCap" size={15} style={{ color: "#a855f7" }} />
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-white/70 text-sm group-hover:text-white transition-colors">Повторить обучение</p>
+                    <p className="text-white/30 text-xs">Пройти тур по функциям заново</p>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2052,6 +2139,7 @@ export default function Index() {
   const [authChecked, setAuthChecked] = useState(false);
   const [activeTab, setActiveTab] = useState("auctions");
   const [bidModal, setBidModal] = useState<Bouquet | null>(null);
+  const { show: showOnboarding, start: startOnboarding, finish: finishOnboarding, triggerIfNew } = useOnboarding();
 
   useEffect(() => {
     const token = localStorage.getItem("ff_token");
@@ -2063,14 +2151,19 @@ export default function Index() {
     });
   }, []);
 
-  const handleAuth = (u: User, _token?: string) => setUser(u);
+  // Запускаем онбординг при первом входе — навигация уже отрендерена
+  useEffect(() => {
+    if (user && authChecked) triggerIfNew();
+  }, [user, authChecked, triggerIfNew]);
+
+  const handleAuth = (u: User, _token?: string) => { setUser(u); };
   const handleLogout = async () => {
     await authApi.logout();
     localStorage.removeItem("ff_token");
     setUser(null);
   };
 
-  const handleBid = (id: number, amount: number) => {
+  const handleBid = (_id: number, _amount: number) => {
     setBidModal(null);
   };
 
@@ -2108,26 +2201,35 @@ export default function Index() {
         {activeTab === "catalog" && <CatalogScreen user={user} />}
         {activeTab === "sell" && <SellScreen user={user} />}
         {activeTab === "deals" && <DealsScreen user={user} />}
-        {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} />}
+        {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} onStartTour={startOnboarding} />}
         {activeTab === "admin" && <AdminScreen user={user} />}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 glass-strong">
-        <div className="max-w-lg mx-auto px-2 py-2 flex items-center justify-around">
+        <div className="max-w-lg mx-auto px-1 py-2 flex items-center justify-around">
           {(user?.is_admin ? [...TABS, { id: "admin", label: "Админ", icon: "ShieldCheck" }] : TABS).map(tab => {
             const isActive = activeTab === tab.id;
+            const isAdmin = tab.id === "admin";
             return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all duration-200 relative"
-                style={isActive ? { background: "rgba(255,61,139,0.12)" } : {}}>
+              <button key={tab.id} id={`tab-${tab.id}`} onClick={() => setActiveTab(tab.id)}
+                className="flex flex-col items-center gap-0.5 rounded-2xl transition-all duration-200 relative"
+                style={{
+                  padding: isAdmin ? "6px 8px" : "6px 10px",
+                  background: isActive ? (isAdmin ? "rgba(168,85,247,0.15)" : "rgba(255,61,139,0.12)") : "transparent"
+                }}>
                 {tab.id === "sell" ? (
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center -mt-5 shadow-lg" style={{ background: "var(--grad-main)" }}>
                     <Icon name={tab.icon as "PlusCircle"} size={20} className="text-white" />
                   </div>
                 ) : (
-                  <Icon name={tab.icon as "Zap"} size={20} style={{ color: isActive ? "var(--neon-pink)" : "rgba(255,255,255,0.35)" }} />
+                  <Icon name={tab.icon as "Zap"} size={isAdmin ? 18 : 20}
+                    style={{ color: isActive ? (isAdmin ? "#a855f7" : "var(--neon-pink)") : "rgba(255,255,255,0.35)" }} />
                 )}
-                <span className="text-xs font-medium" style={{ color: isActive ? "var(--neon-pink)" : "rgba(255,255,255,0.35)", marginTop: tab.id === "sell" ? "2px" : "0" }}>
+                <span className="font-medium" style={{
+                  fontSize: isAdmin ? "9px" : "12px",
+                  color: isActive ? (isAdmin ? "#a855f7" : "var(--neon-pink)") : "rgba(255,255,255,0.35)",
+                  marginTop: tab.id === "sell" ? "2px" : "0"
+                }}>
                   {tab.label}
                 </span>
                 {isActive && tab.id !== "sell" && <div className="absolute -bottom-0.5 w-1 h-1 rounded-full" style={{ background: "var(--neon-pink)" }} />}
@@ -2138,6 +2240,7 @@ export default function Index() {
       </nav>
 
       {bidModal && <BidModal bouquet={bidModal} onClose={() => setBidModal(null)} onBid={handleBid} />}
+      {showOnboarding && <OnboardingTour onFinish={finishOnboarding} />}
     </div>
   );
 }
