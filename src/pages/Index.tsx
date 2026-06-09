@@ -107,40 +107,66 @@ interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
-function InstallBanner() {
-  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [dismissed, setDismissed] = useState(() => !!localStorage.getItem("ff_install_dismissed"));
+
+// Глобально храним событие установки — оно может прийти до монтирования компонентов
+let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e as BeforeInstallPromptEvent;
+    window.dispatchEvent(new Event("ff-install-ready"));
+  });
+}
+
+// Хук установки PWA — используется и баннером, и кнопкой в профиле
+function usePwaInstall() {
+  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(deferredInstallPrompt);
   const [isIos, setIsIos] = useState(false);
-  const [showIosGuide, setShowIosGuide] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
-    // Уже установлено как приложение
     if (window.matchMedia("(display-mode: standalone)").matches) {
-      setIsStandalone(true); return;
+      setIsStandalone(true);
     }
-    // iOS
     const nav = window.navigator as Navigator & { standalone?: boolean };
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !nav.standalone;
-    setIsIos(ios);
-    // Android / Desktop — слушаем beforeinstallprompt
-    const handler = (e: Event) => { e.preventDefault(); setPrompt(e as BeforeInstallPromptEvent); };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    setIsIos(/iphone|ipad|ipod/i.test(navigator.userAgent) && !nav.standalone);
+    const onReady = () => setPrompt(deferredInstallPrompt);
+    window.addEventListener("ff-install-ready", onReady);
+    const onInstalled = () => { setPrompt(null); deferredInstallPrompt = null; setIsStandalone(true); };
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("ff-install-ready", onReady);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
   }, []);
 
-  if (isStandalone || dismissed) return null;
-  if (!prompt && !isIos) return null;
+  const promptInstall = async (): Promise<"accepted" | "dismissed" | "ios" | "unavailable"> => {
+    if (isIos) return "ios";
+    const p = prompt || deferredInstallPrompt;
+    if (!p) return "unavailable";
+    await p.prompt();
+    const { outcome } = await p.userChoice;
+    if (outcome === "accepted") { setPrompt(null); deferredInstallPrompt = null; }
+    return outcome;
+  };
+
+  // canInstall: можно показать кнопку (есть prompt или iOS) и приложение ещё не установлено
+  return { isIos, isStandalone, canInstall: (!!prompt || isIos) && !isStandalone, promptInstall };
+}
+
+function InstallBanner() {
+  const { isIos, isStandalone, canInstall, promptInstall } = usePwaInstall();
+  const [dismissed, setDismissed] = useState(() => !!localStorage.getItem("ff_install_dismissed"));
+  const [showIosGuide, setShowIosGuide] = useState(false);
+
+  if (isStandalone || dismissed || !canInstall) return null;
 
   const dismiss = () => { localStorage.setItem("ff_install_dismissed", "1"); setDismissed(true); };
 
   const install = async () => {
-    if (isIos) { setShowIosGuide(true); return; }
-    if (prompt) {
-      await prompt.prompt();
-      const { outcome } = await prompt.userChoice;
-      if (outcome === "accepted") dismiss();
-    }
+    const res = await promptInstall();
+    if (res === "ios") { setShowIosGuide(true); return; }
+    if (res === "accepted") dismiss();
   };
 
   return (
@@ -1457,6 +1483,13 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
   const [payoutDetails, setPayoutDetails] = useState(user?.payout_details || "");
   const [payoutSaved, setPayoutSaved] = useState("");
   const [withdrawals, setWithdrawals] = useState<{ id: number; amount: number; method: string; details: string; status: string; admin_comment?: string; created_at: string }[]>([]);
+  const { isIos, isStandalone, canInstall, promptInstall } = usePwaInstall();
+  const [showIosGuide, setShowIosGuide] = useState(false);
+
+  const installApp = async () => {
+    const res = await promptInstall();
+    if (res === "ios") setShowIosGuide(true);
+  };
 
   const loadWithdrawals = useCallback(() => {
     profileApi.withdrawals().then(r => { if (r.ok) setWithdrawals(r.data.withdrawals); });
@@ -1641,6 +1674,70 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
               </div>
             )}
           </div>
+
+          {/* Установка приложения */}
+          {!isStandalone && (
+            <div className="glass rounded-2xl p-4" style={{ border: "1px solid rgba(255,61,139,0.2)" }}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 text-xl"
+                  style={{ background: "var(--grad-main)" }}>🌸</div>
+                <div className="flex-1">
+                  <p className="text-white font-medium text-sm">Установить приложение</p>
+                  <p className="text-white/40 text-xs mt-0.5">Быстрый доступ с экрана телефона</p>
+                </div>
+              </div>
+              {isIos ? (
+                <button onClick={() => setShowIosGuide(true)}
+                  className="btn-gradient w-full rounded-xl py-3 font-oswald text-base tracking-wide">
+                  КАК УСТАНОВИТЬ НА IPHONE
+                </button>
+              ) : canInstall ? (
+                <button onClick={installApp}
+                  className="btn-gradient w-full rounded-xl py-3 font-oswald text-base tracking-wide">
+                  УСТАНОВИТЬ
+                </button>
+              ) : (
+                <p className="text-white/30 text-xs text-center py-2">
+                  Откройте сайт в Chrome или Safari и используйте меню браузера → «Установить приложение»
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* iOS guide modal (в профиле) */}
+          {showIosGuide && (
+            <div className="fixed inset-0 z-[60] flex items-end justify-center p-4"
+              style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+              onClick={() => setShowIosGuide(false)}>
+              <div className="glass-strong rounded-3xl p-6 w-full max-w-sm animate-fade-in-up"
+                onClick={e => e.stopPropagation()}>
+                <div className="text-center mb-5">
+                  <span className="text-4xl block mb-2">📱</span>
+                  <h3 className="font-oswald text-xl font-bold text-white">Установить на iPhone</h3>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { step: "1", text: "Нажмите кнопку «Поделиться»", sub: "значок снизу экрана браузера Safari" },
+                    { step: "2", text: "Выберите «На экран «Домой»»", sub: "прокрутите список действий вниз" },
+                    { step: "3", text: "Нажмите «Добавить»", sub: "приложение появится на рабочем столе" },
+                  ].map(s => (
+                    <div key={s.step} className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-white text-sm"
+                        style={{ background: "var(--grad-main)" }}>{s.step}</div>
+                      <div>
+                        <p className="text-white text-sm font-medium">{s.text}</p>
+                        <p className="text-white/40 text-xs mt-0.5">{s.sub}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setShowIosGuide(false)}
+                  className="btn-gradient w-full rounded-2xl py-3 mt-5 font-oswald tracking-wide">
+                  ПОНЯТНО
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Поддержка */}
           <div className="glass rounded-2xl p-4" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>

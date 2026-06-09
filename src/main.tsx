@@ -5,11 +5,9 @@ import './index.css'
 
 createRoot(document.getElementById("root")!).render(<App />);
 
-// Service Worker для PWA — сначала снимаем все старые, потом регистрируем новый
+// Service Worker для PWA — стабильная регистрация (нужна для установки приложения)
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map(r => r.unregister()));
+  window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
 }

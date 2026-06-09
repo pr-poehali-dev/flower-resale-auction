@@ -13,6 +13,43 @@ CORS = {
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
+def finalize_expired_auctions(conn):
+    """Автозавершение аукционов, у которых истекло время.
+    Со ставками -> 'won' (победитель: автор макс. ставки). Без ставок -> 'expired'."""
+    with conn.cursor() as cur:
+        # Со ставками -> won + создаём заказ победителю, если его ещё нет
+        cur.execute(
+            f"SELECT b.id, b.current_price, b.seller_id, "
+            f"(SELECT user_id FROM {SCHEMA}.bids WHERE bouquet_id = b.id ORDER BY amount DESC, created_at ASC LIMIT 1) as winner_id "
+            f"FROM {SCHEMA}.bouquets b "
+            f"WHERE b.status = 'active' AND b.ends_at <= NOW()"
+        )
+        expired = cur.fetchall()
+        for bid, price, seller_id, winner_id in expired:
+            if winner_id:
+                cur.execute(f"UPDATE {SCHEMA}.bouquets SET status = 'won' WHERE id = %s", (bid,))
+                # Создаём заказ победителю, если ещё не создан
+                cur.execute(f"SELECT id FROM {SCHEMA}.orders WHERE bouquet_id = %s", (bid,))
+                if not cur.fetchone():
+                    amount = float(price)
+                    commission = round(amount * 0.12, 2)
+                    cur.execute(
+                        f"INSERT INTO {SCHEMA}.orders (bouquet_id, buyer_id, seller_id, amount, commission, escrow_status) "
+                        f"VALUES (%s, %s, %s, %s, %s, 'waiting_payment')",
+                        (bid, winner_id, seller_id, amount, commission)
+                    )
+                    cur.execute(
+                        f"INSERT INTO {SCHEMA}.messages (sender_id, receiver_id, text, bouquet_id) "
+                        f"VALUES (%s, %s, %s, %s)",
+                        (seller_id, winner_id,
+                         "🎉 Поздравляем! Вы выиграли аукцион. Оплатите заказ во вкладке «Сделки», чтобы получить контакты продавца.",
+                         bid)
+                    )
+            else:
+                cur.execute(f"UPDATE {SCHEMA}.bouquets SET status = 'expired' WHERE id = %s", (bid,))
+    conn.commit()
+
+
 def get_user_by_token(conn, token: str):
     if not token:
         return None
@@ -52,6 +89,7 @@ def handler(event: dict, context) -> dict:
 
     conn = get_conn()
     try:
+        finalize_expired_auctions(conn)
         user = get_user_by_token(conn, token)
 
         # GET list — активные аукционы
