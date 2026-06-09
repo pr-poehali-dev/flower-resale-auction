@@ -67,14 +67,18 @@ async function req(url: string, options: RequestInit = {}) {
 
 // AUTH
 export const authApi = {
-  register: (name: string, phone: string, password: string, city?: string) =>
-    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ action: "register", name, phone, password, city }) }),
+  register: (name: string, phone: string, password: string, city?: string, email?: string) =>
+    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ action: "register", name, phone, password, city, email }) }),
   login: (phone: string, password: string) =>
     req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ action: "login", phone, password }) }),
   me: () => req(`${URLS.auth}/?action=me`),
-  update: (data: { name?: string; avatar_url?: string; city?: string }) =>
+  update: (data: { name?: string; avatar_url?: string; city?: string; email?: string }) =>
     req(`${URLS.auth}/?action=update`, { method: "POST", body: JSON.stringify({ action: "update", ...data }) }),
   logout: () => req(`${URLS.auth}/?action=logout`, { method: "POST", body: JSON.stringify({ action: "logout" }) }),
+  verifyEmail: (token: string) =>
+    req(`${URLS.auth}/?action=verify_email&token=${token}`),
+  resendVerify: () =>
+    req(`${URLS.auth}/?action=resend_verify`, { method: "POST", body: JSON.stringify({ action: "resend_verify" }) }),
 };
 
 // BOUQUETS

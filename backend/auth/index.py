@@ -1,8 +1,12 @@
-"""Авторизация: регистрация, вход, профиль пользователя, выход"""
+"""Авторизация: регистрация, вход, профиль пользователя, выход, подтверждение email"""
 import json
 import os
 import hashlib
 import secrets
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import psycopg2
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p84229990_flower_resale_auctio")
@@ -11,6 +15,8 @@ CORS = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Authorization, Authorization",
 }
+SITE_EMAIL = "flowerflip@flowerflip.ru"
+SITE_URL = "https://flowerflip.ru"
 
 def get_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
@@ -21,24 +27,53 @@ def hash_pwd(pwd: str) -> str:
 def make_token() -> str:
     return secrets.token_hex(32)
 
+def send_verify_email(to_email: str, token: str, name: str):
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    if not smtp_password:
+        return
+    verify_url = f"{SITE_URL}/?verify_email={token}"
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Подтвердите email — FlowerFlip"
+    msg["From"] = f"FlowerFlip <{SITE_EMAIL}>"
+    msg["To"] = to_email
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0f0a18;color:#fff;border-radius:16px;">
+      <h1 style="color:#ff3d8b;font-size:24px;margin-bottom:8px;">🌸 FlowerFlip</h1>
+      <p style="color:#ccc;margin-bottom:24px;">Привет, {name}! Подтверди свой email чтобы получать уведомления о ставках и сделках.</p>
+      <a href="{verify_url}" style="display:inline-block;background:linear-gradient(135deg,#ff3d8b,#a855f7);color:#fff;text-decoration:none;padding:14px 32px;border-radius:12px;font-weight:bold;font-size:16px;">Подтвердить email</a>
+      <p style="color:#555;font-size:12px;margin-top:24px;">Ссылка действительна 24 часа. Если вы не регистрировались — просто проигнорируйте это письмо.</p>
+    </div>
+    """
+    msg.attach(MIMEText(html, "html"))
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("mail.hosting.reg.ru", 465, context=context) as server:
+            server.login(SITE_EMAIL, smtp_password)
+            server.sendmail(SITE_EMAIL, to_email, msg.as_string())
+    except Exception as e:
+        print(f"[SMTP ERROR] {e}")
+
 def get_user_by_token(conn, token: str):
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT u.id, u.name, u.phone, u.avatar_url, u.rating, u.reviews_count, "
             f"u.sales_count, u.purchases_count, u.balance, u.created_at, u.city, "
-            f"u.is_admin, u.payout_method, u.payout_details "
+            f"u.is_admin, u.payout_method, u.payout_details, u.email, u.email_verified "
             f"FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
         row = cur.fetchone()
     if not row:
         return None
-    cols = ["id","name","phone","avatar_url","rating","reviews_count","sales_count","purchases_count","balance","created_at","city","is_admin","payout_method","payout_details"]
+    cols = ["id","name","phone","avatar_url","rating","reviews_count","sales_count",
+            "purchases_count","balance","created_at","city","is_admin","payout_method",
+            "payout_details","email","email_verified"]
     d = dict(zip(cols, row))
     d["rating"] = float(d["rating"])
     d["balance"] = float(d["balance"])
     d["created_at"] = str(d["created_at"])
     d["is_admin"] = bool(d["is_admin"])
+    d["email_verified"] = bool(d["email_verified"])
     return d
 
 def handler(event: dict, context) -> dict:
@@ -48,10 +83,8 @@ def handler(event: dict, context) -> dict:
     method = event.get("httpMethod", "GET")
     qs = event.get("queryStringParameters") or {}
     body = json.loads(event.get("body") or "{}")
-    # action — из query string или из body (фронтенд дублирует для надёжности)
     action = qs.get("action") or body.get("action", "")
 
-    # Токен из заголовка (прокси перекладывает Authorization -> X-Authorization)
     headers = event.get("headers") or {}
     auth_header = (
         headers.get("X-Authorization")
@@ -69,21 +102,30 @@ def handler(event: dict, context) -> dict:
             name = body.get("name", "").strip()
             phone = body.get("phone", "").strip()
             password = body.get("password", "")
+            email = (body.get("email") or "").strip().lower() or None
             if not name or not phone or not password:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Заполните все поля"})}
             with conn.cursor() as cur:
                 cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE phone = %s", (phone,))
                 if cur.fetchone():
                     return {"statusCode": 409, "headers": CORS, "body": json.dumps({"error": "Телефон уже зарегистрирован"})}
+                if email:
+                    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE email = %s", (email,))
+                    if cur.fetchone():
+                        return {"statusCode": 409, "headers": CORS, "body": json.dumps({"error": "Email уже зарегистрирован"})}
                 city = body.get("city", "").strip() or None
+                email_token = make_token() if email else None
                 cur.execute(
-                    f"INSERT INTO {SCHEMA}.users (name, phone, password_hash, city) VALUES (%s, %s, %s, %s) RETURNING id",
-                    (name, phone, hash_pwd(password), city)
+                    f"INSERT INTO {SCHEMA}.users (name, phone, password_hash, city, email, email_token, email_token_at) "
+                    f"VALUES (%s, %s, %s, %s, %s, %s, NOW()) RETURNING id",
+                    (name, phone, hash_pwd(password), city, email, email_token)
                 )
                 user_id = cur.fetchone()[0]
                 tok = make_token()
                 cur.execute(f"INSERT INTO {SCHEMA}.sessions (user_id, token) VALUES (%s, %s)", (user_id, tok))
             conn.commit()
+            if email and email_token:
+                send_verify_email(email, email_token, name)
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"token": tok, "user": {"id": user_id, "name": name, "phone": phone}})}
 
         # login
@@ -123,6 +165,7 @@ def handler(event: dict, context) -> dict:
             name = body.get("name")
             avatar_url = body.get("avatar_url")
             city = body.get("city")
+            new_email = (body.get("email") or "").strip().lower() or None
             with conn.cursor() as cur:
                 if name:
                     cur.execute(f"UPDATE {SCHEMA}.users SET name = %s WHERE id = %s", (name, user["id"]))
@@ -130,7 +173,60 @@ def handler(event: dict, context) -> dict:
                     cur.execute(f"UPDATE {SCHEMA}.users SET avatar_url = %s WHERE id = %s", (avatar_url, user["id"]))
                 if city is not None:
                     cur.execute(f"UPDATE {SCHEMA}.users SET city = %s WHERE id = %s", (city, user["id"]))
+                if new_email and new_email != user.get("email"):
+                    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE email = %s AND id != %s", (new_email, user["id"]))
+                    if cur.fetchone():
+                        return {"statusCode": 409, "headers": CORS, "body": json.dumps({"error": "Email уже используется"})}
+                    email_token = make_token()
+                    cur.execute(
+                        f"UPDATE {SCHEMA}.users SET email = %s, email_verified = FALSE, email_token = %s, email_token_at = NOW() WHERE id = %s",
+                        (new_email, email_token, user["id"])
+                    )
+                    conn.commit()
+                    send_verify_email(new_email, email_token, user["name"])
+                    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "email_sent": True})}
             conn.commit()
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+
+        # verify email по токену из ссылки
+        if action == "verify_email":
+            verify_token = qs.get("token") or body.get("token", "")
+            if not verify_token:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Токен не указан"})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT id, name FROM {SCHEMA}.users WHERE email_token = %s "
+                    f"AND email_token_at > NOW() - INTERVAL '24 hours'",
+                    (verify_token,)
+                )
+                row = cur.fetchone()
+            if not row:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Ссылка недействительна или истекла"})}
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE {SCHEMA}.users SET email_verified = TRUE, email_token = NULL WHERE id = %s",
+                    (row[0],)
+                )
+            conn.commit()
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "message": "Email подтверждён!"})}
+
+        # resend verification email
+        if action == "resend_verify" and method == "POST":
+            if not token:
+                return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            user = get_user_by_token(conn, token)
+            if not user or not user.get("email"):
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Email не указан"})}
+            if user.get("email_verified"):
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Email уже подтверждён"})}
+            email_token = make_token()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE {SCHEMA}.users SET email_token = %s, email_token_at = NOW() WHERE id = %s",
+                    (email_token, user["id"])
+                )
+            conn.commit()
+            send_verify_email(user["email"], email_token, user["name"])
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
 
         # logout

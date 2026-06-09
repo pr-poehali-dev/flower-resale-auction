@@ -17,6 +17,7 @@ interface User {
   rating: number; reviews_count: number; sales_count: number;
   purchases_count: number; balance: number; created_at: string; city?: string;
   is_admin?: boolean; payout_method?: string; payout_details?: string;
+  email?: string; email_verified?: boolean;
 }
 interface Deal {
   id: number; amount: number; commission: number; escrow_status: string;
@@ -245,6 +246,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [city, setCity] = useState("");
   const [cityInput, setCityInput] = useState("");
   const [showCitySuggest, setShowCitySuggest] = useState(false);
+  const [regEmail, setRegEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
@@ -375,7 +377,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     setError(""); setLoading(true);
     const r = mode === "login"
       ? await authApi.login(phone, password)
-      : await authApi.register(name, phone, password, city || cityInput);
+      : await authApi.register(name, phone, password, city || cityInput, regEmail || undefined);
     setLoading(false);
     if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
     await finishOAuth(r.data.token);
@@ -546,7 +548,15 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
               <label className="text-white/50 text-sm mb-1.5 block">Пароль</label>
               <input value={password} onChange={e => setPassword(e.target.value)} type="password"
                 className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
-                placeholder="••••••••" onKeyDown={e => e.key === "Enter" && submit()} />
+                placeholder="••••••••" />
+            </div>
+            <div>
+              <label className="text-white/50 text-sm mb-1.5 block">
+                Email <span className="text-white/25 text-xs font-normal">(необязательно)</span>
+              </label>
+              <input value={regEmail} onChange={e => setRegEmail(e.target.value)} type="email"
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                placeholder="your@email.com" onKeyDown={e => e.key === "Enter" && submit()} />
             </div>
           </div>
 
@@ -1641,6 +1651,24 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
 
   const [cancelConfirm, setCancelConfirm] = useState<number | null>(null);
   const [cancelMsg, setCancelMsg] = useState("");
+  const [emailInput, setEmailInput] = useState(user?.email || "");
+  const [emailMsg, setEmailMsg] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+
+  const saveEmail = async () => {
+    if (!emailInput.trim() || emailInput === user?.email) return;
+    setEmailSaving(true); setEmailMsg("");
+    const r = await authApi.update({ email: emailInput.trim() });
+    setEmailSaving(false);
+    if (r.ok) setEmailMsg(r.data.email_sent ? "Письмо отправлено — проверьте почту" : "Сохранено");
+    else setEmailMsg(r.data.error || "Ошибка");
+  };
+
+  const resendVerify = async () => {
+    setEmailMsg("");
+    const r = await authApi.resendVerify();
+    setEmailMsg(r.ok ? "Письмо отправлено повторно" : (r.data.error || "Ошибка"));
+  };
 
   const loadWithdrawals = useCallback(() => {
     profileApi.withdrawals().then(r => { if (r.ok) setWithdrawals(r.data.withdrawals); });
@@ -1722,6 +1750,16 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
               <span className="text-white/50 text-xs ml-1">{user.rating?.toFixed(1)} · {user.reviews_count} отзывов</span>
             </div>
             <p className="text-white/40 text-xs mt-0.5">{user.phone}</p>
+            {user.email && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <Icon name="Mail" size={10} className="text-white/30" />
+                <span className="text-white/40 text-xs">{user.email}</span>
+                {user.email_verified
+                  ? <Icon name="CheckCircle2" size={10} className="text-green-400" />
+                  : <span className="text-yellow-400 text-xs">· не подтверждён</span>
+                }
+              </div>
+            )}
           </div>
           <button onClick={onLogout} className="glass p-2 rounded-xl" title="Выйти">
             <Icon name="LogOut" size={16} className="text-white/40" />
@@ -1749,6 +1787,36 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
 
       {tab === "about" && (
         <div className="space-y-3 animate-fade-in-up">
+
+          {/* Email */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-white/50 text-sm mb-3 font-medium flex items-center gap-2">
+              <Icon name="Mail" size={14} />
+              Email
+              {user.email && user.email_verified && <span className="text-green-400 text-xs ml-1 flex items-center gap-1"><Icon name="CheckCircle2" size={11} />подтверждён</span>}
+              {user.email && !user.email_verified && <span className="text-yellow-400 text-xs ml-1">· не подтверждён</span>}
+            </p>
+            <div className="flex gap-2">
+              <input value={emailInput} onChange={e => setEmailInput(e.target.value)} type="email"
+                className="flex-1 glass rounded-xl px-3 py-2.5 text-white placeholder:text-white/30 text-sm outline-none"
+                placeholder="your@email.com" />
+              <button onClick={saveEmail} disabled={emailSaving || !emailInput.trim() || emailInput === user.email}
+                className="btn-gradient px-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-40">
+                {emailSaving ? "..." : "Сохранить"}
+              </button>
+            </div>
+            {user.email && !user.email_verified && (
+              <div className="mt-2 flex items-center justify-between p-2.5 rounded-xl"
+                style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.2)" }}>
+                <span className="text-yellow-400 text-xs">Подтвердите email — проверьте почту</span>
+                <button onClick={resendVerify} className="text-yellow-400 text-xs underline ml-2 hover:text-yellow-300">
+                  Отправить снова
+                </button>
+              </div>
+            )}
+            {emailMsg && <p className={`text-xs mt-2 ${emailMsg.includes("Ошибка") || emailMsg.includes("уже") ? "text-red-400" : "text-green-400"}`}>{emailMsg}</p>}
+          </div>
+
           <div className="glass rounded-2xl p-4">
             <p className="text-white/50 text-sm mb-3 font-medium">Баланс и выплаты</p>
             <p className="gradient-text font-oswald text-3xl font-bold mb-1">{formatPrice(user.balance)}</p>
@@ -2183,6 +2251,19 @@ export default function Index() {
     if (user && authChecked) triggerIfNew();
   }, [user, authChecked, triggerIfNew]);
 
+  // Обработка подтверждения email по ссылке (?verify_email=TOKEN)
+  const [verifyMsg, setVerifyMsg] = useState("");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const vtoken = params.get("verify_email");
+    if (!vtoken) return;
+    authApi.verifyEmail(vtoken).then(r => {
+      setVerifyMsg(r.ok ? "✅ Email подтверждён!" : (r.data.error || "Ссылка недействительна"));
+      // Убираем параметр из URL
+      window.history.replaceState({}, "", window.location.pathname);
+    });
+  }, []);
+
   const handleAuth = (u: User, _token?: string) => { setUser(u); };
   const handleLogout = async () => {
     await authApi.logout();
@@ -2222,6 +2303,22 @@ export default function Index() {
           </div>
         </div>
       </header>
+
+      {verifyMsg && (
+        <div className="max-w-lg mx-auto px-4 pt-3">
+          <div className="flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-medium"
+            style={{
+              background: verifyMsg.includes("✅") ? "rgba(74,222,128,0.15)" : "rgba(239,68,68,0.15)",
+              border: `1px solid ${verifyMsg.includes("✅") ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.3)"}`,
+              color: verifyMsg.includes("✅") ? "#4ade80" : "#f87171"
+            }}>
+            {verifyMsg}
+            <button onClick={() => setVerifyMsg("")} className="ml-3 opacity-60 hover:opacity-100">
+              <Icon name="X" size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-lg mx-auto px-4 py-5 pb-28">
         {activeTab === "auctions" && <AuctionsScreen onBid={setBidModal} user={user} />}
