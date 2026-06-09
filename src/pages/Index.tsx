@@ -26,6 +26,7 @@ interface Deal {
   title: string; image_urls: string[]; city?: string; district?: string;
   seller_name: string; seller_id: number; buyer_name: string; buyer_id: number;
   seller_phone?: string; buyer_phone?: string;
+  seller_email?: string; buyer_email?: string;
   is_buyer: boolean; is_seller: boolean;
 }
 interface Review { id: number; stars: number; text: string; created_at: string; reviewer_name: string; }
@@ -1258,7 +1259,7 @@ function SellScreen({ user }: { user: User | null }) {
 
 
 /* ─── DEALS SCREEN (ESCROW) ──────────────────────────────── */
-function DealsScreen({ user }: { user: User | null }) {
+function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?: () => void }) {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Deal | null>(null);
@@ -1310,7 +1311,16 @@ function DealsScreen({ user }: { user: User | null }) {
     setActionLoading(true); setMsg("");
     const r = await escrowApi.pay(deal.id);
     setActionLoading(false);
-    if (r.ok) { load(); setActive(null); }
+    if (r.ok) {
+      onPaySuccess?.(); // обновляем баланс в шапке
+      await load();
+      // обновляем активную сделку чтобы показать контакты
+      const updated = await escrowApi.myDeals();
+      if (updated.ok) {
+        const updatedDeal = updated.data.deals.find((d: Deal) => d.id === deal.id);
+        if (updatedDeal) setActive(updatedDeal);
+      }
+    }
     else setMsg(r.data.error || "Ошибка оплаты");
   };
 
@@ -1425,30 +1435,42 @@ function DealsScreen({ user }: { user: User | null }) {
         {active.escrow_status === "paid" && (
           <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(6,214,222,0.3)" }}>
             <p className="text-white/50 text-xs mb-3 font-medium uppercase tracking-wide">Контакты для встречи</p>
-            {active.is_buyer && active.seller_phone && (
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <p className="text-white/40 text-xs">Продавец</p>
-                  <p className="text-white font-medium">{active.seller_name}</p>
+            {active.is_buyer && (
+              <div className="mb-3">
+                <p className="text-white/40 text-xs mb-2">Продавец — {active.seller_name}</p>
+                <div className="flex flex-wrap gap-2">
+                  {active.seller_phone && (
+                    <a href={`tel:${active.seller_phone}`}
+                      className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
+                      <Icon name="Phone" size={14} />{active.seller_phone}
+                    </a>
+                  )}
+                  {active.seller_email && (
+                    <a href={`mailto:${active.seller_email}`}
+                      className="glass px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 text-white/80">
+                      <Icon name="Mail" size={14} />{active.seller_email}
+                    </a>
+                  )}
                 </div>
-                <a href={`tel:${active.seller_phone}`}
-                  className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
-                  <Icon name="Phone" size={14} />
-                  {active.seller_phone}
-                </a>
               </div>
             )}
-            {active.is_seller && active.buyer_phone && (
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-white/40 text-xs">Покупатель</p>
-                  <p className="text-white font-medium">{active.buyer_name}</p>
+            {active.is_seller && (
+              <div className="mb-1">
+                <p className="text-white/40 text-xs mb-2">Покупатель — {active.buyer_name}</p>
+                <div className="flex flex-wrap gap-2">
+                  {active.buyer_phone && (
+                    <a href={`tel:${active.buyer_phone}`}
+                      className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
+                      <Icon name="Phone" size={14} />{active.buyer_phone}
+                    </a>
+                  )}
+                  {active.buyer_email && (
+                    <a href={`mailto:${active.buyer_email}`}
+                      className="glass px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 text-white/80">
+                      <Icon name="Mail" size={14} />{active.buyer_email}
+                    </a>
+                  )}
                 </div>
-                <a href={`tel:${active.buyer_phone}`}
-                  className="btn-gradient px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
-                  <Icon name="Phone" size={14} />
-                  {active.buyer_phone}
-                </a>
               </div>
             )}
             {timeLeft !== null && timeLeft > 0 && active.is_buyer && (
@@ -2349,6 +2371,10 @@ export default function Index() {
     });
   }, []);
 
+  const refreshUser = useCallback(() => {
+    authApi.me().then(r => { if (r.ok) setUser(r.data.user); });
+  }, []);
+
   const handleAuth = (u: User, _token?: string) => { setUser(u); };
   const handleLogout = async () => {
     await authApi.logout();
@@ -2409,7 +2435,7 @@ export default function Index() {
         {activeTab === "auctions" && <AuctionsScreen onBid={setBidModal} user={user} />}
         {activeTab === "catalog" && <CatalogScreen user={user} />}
         {activeTab === "sell" && <SellScreen user={user} />}
-        {activeTab === "deals" && <DealsScreen user={user} />}
+        {activeTab === "deals" && <DealsScreen user={user} onPaySuccess={refreshUser} />}
         {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} onStartTour={startOnboarding} />}
         {activeTab === "admin" && <AdminScreen user={user} />}
       </main>

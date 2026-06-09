@@ -1,4 +1,4 @@
-"""
+"""v2
 Эскроу-система безопасной передачи букетов.
 
 Схема:
@@ -298,7 +298,9 @@ def handler(event: dict, context) -> dict:
                     f"s.name as seller_name, s.id as seller_id, "
                     f"buy.name as buyer_name, buy.id as buyer_id, "
                     f"CASE WHEN o.seller_phone_revealed THEN s.phone ELSE NULL END as seller_phone, "
-                    f"CASE WHEN o.seller_phone_revealed THEN buy.phone ELSE NULL END as buyer_phone "
+                    f"CASE WHEN o.seller_phone_revealed THEN buy.phone ELSE NULL END as buyer_phone, "
+                    f"CASE WHEN o.seller_phone_revealed THEN s.email ELSE NULL END as seller_email, "
+                    f"CASE WHEN o.seller_phone_revealed THEN buy.email ELSE NULL END as buyer_email "
                     f"FROM {SCHEMA}.orders o "
                     f"JOIN {SCHEMA}.bouquets b ON b.id = o.bouquet_id "
                     f"JOIN {SCHEMA}.users s ON s.id = o.seller_id "
@@ -311,7 +313,8 @@ def handler(event: dict, context) -> dict:
             cols = ["id","amount","commission","escrow_status","created_at","updated_at",
                     "seller_phone_revealed","auto_confirm_at","dispute_reason",
                     "title","image_urls","city","district",
-                    "seller_name","seller_id","buyer_name","buyer_id","seller_phone","buyer_phone"]
+                    "seller_name","seller_id","buyer_name","buyer_id",
+                    "seller_phone","buyer_phone","seller_email","buyer_email"]
             deals = []
             for row in rows:
                 d = fmt_order(row, cols)
