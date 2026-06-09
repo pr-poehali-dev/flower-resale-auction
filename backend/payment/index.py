@@ -88,15 +88,43 @@ def handler(event: dict, context) -> dict:
         if action == "webhook" and method == "POST":
             obj = body.get("object", {})
             if body.get("event") == "payment.succeeded" and obj.get("status") == "succeeded":
+                payment_id = obj.get("id", "")
                 user_id = int(obj.get("metadata", {}).get("user_id", 0))
                 amount = float(obj.get("amount", {}).get("value", 0))
-                if user_id and amount > 0:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            f"UPDATE {SCHEMA}.users SET balance = balance + %s WHERE id = %s",
-                            (amount, user_id)
-                        )
-                    conn.commit()
+                if user_id and amount > 0 and payment_id:
+                    # Верифицируем платёж напрямую через API ЮКассы
+                    shop_id = os.environ["YOOKASSA_SHOP_ID"]
+                    secret = os.environ["YOOKASSA_SECRET_KEY"]
+                    auth = base64.b64encode(f"{shop_id}:{secret}".encode()).decode()
+                    verify_req = urllib.request.Request(
+                        f"https://api.yookassa.ru/v3/payments/{payment_id}",
+                        headers={"Authorization": f"Basic {auth}"},
+                        method="GET",
+                    )
+                    with urllib.request.urlopen(verify_req, timeout=10) as resp:
+                        verified = json.loads(resp.read().decode())
+                    if verified.get("status") == "succeeded":
+                        real_amount = float(verified.get("amount", {}).get("value", 0))
+                        real_user_id = int(verified.get("metadata", {}).get("user_id", 0))
+                        if real_user_id == user_id and real_amount == amount:
+                            # Проверяем идемпотентность — не зачисляем дважды
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    f"SELECT id FROM {SCHEMA}.payment_log WHERE payment_id = %s",
+                                    (payment_id,)
+                                )
+                                already = cur.fetchone()
+                            if not already:
+                                with conn.cursor() as cur:
+                                    cur.execute(
+                                        f"INSERT INTO {SCHEMA}.payment_log (payment_id, user_id, amount) VALUES (%s, %s, %s)",
+                                        (payment_id, user_id, real_amount)
+                                    )
+                                    cur.execute(
+                                        f"UPDATE {SCHEMA}.users SET balance = balance + %s WHERE id = %s",
+                                        (real_amount, user_id)
+                                    )
+                                conn.commit()
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
 
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Unknown action"})}
