@@ -23,25 +23,41 @@ def get_user(conn, token: str):
         return None
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT u.id, u.name FROM {SCHEMA}.sessions s "
+            f"SELECT u.id, u.name, u.phone FROM {SCHEMA}.sessions s "
             f"JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
         row = cur.fetchone()
-    return {"id": row[0], "name": row[1]} if row else None
+    return {"id": row[0], "name": row[1], "phone": row[2]} if row else None
 
 
-def yookassa_create_payment(amount: float, return_url: str, user_id: int):
+def yookassa_create_payment(amount: float, return_url: str, user_id: int, user_phone: str):
     import urllib.error
     shop_id = os.environ["YOOKASSA_SHOP_ID"]
     secret = os.environ["YOOKASSA_SECRET_KEY"]
     auth = base64.b64encode(f"{shop_id}:{secret}".encode()).decode()
+    # Нормализуем телефон: +7XXXXXXXXXX
+    phone = "".join(filter(str.isdigit, user_phone or ""))
+    if phone.startswith("8"):
+        phone = "7" + phone[1:]
+    phone = "+" + phone
     payload = json.dumps({
         "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
         "confirmation": {"type": "redirect", "return_url": return_url},
         "capture": True,
         "description": f"Пополнение баланса FlowerFlip (user {user_id})",
         "metadata": {"user_id": str(user_id)},
+        "receipt": {
+            "customer": {"phone": phone},
+            "items": [{
+                "description": "Пополнение баланса FlowerFlip",
+                "quantity": "1.00",
+                "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
+                "vat_code": 1,
+                "payment_mode": "full_prepayment",
+                "payment_subject": "service",
+            }],
+        },
     }).encode()
     request = urllib.request.Request(
         "https://api.yookassa.ru/v3/payments",
@@ -84,7 +100,7 @@ def handler(event: dict, context) -> dict:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Минимальная сумма 10 ₽"})}
             return_url = body.get("return_url", "https://flowerflip.ru")
             try:
-                payment = yookassa_create_payment(amount, return_url, user["id"])
+                payment = yookassa_create_payment(amount, return_url, user["id"], user["phone"])
             except Exception as e:
                 return {"statusCode": 502, "headers": CORS, "body": json.dumps({"error": str(e)})}
             confirm_url = payment.get("confirmation", {}).get("confirmation_url")
