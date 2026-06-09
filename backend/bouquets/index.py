@@ -74,7 +74,7 @@ def finalize_expired_auctions(conn):
                 cur.execute(f"SELECT id FROM {SCHEMA}.orders WHERE bouquet_id = %s", (bid,))
                 if not cur.fetchone():
                     amount = float(price)
-                    commission = round(amount * 0.12, 2)
+                    commission = round(amount * 0.15)  # 15%, округление до целых
                     cur.execute(
                         f"INSERT INTO {SCHEMA}.orders (bouquet_id, buyer_id, seller_id, amount, commission, escrow_status) "
                         f"VALUES (%s, %s, %s, %s, %s, 'waiting_payment')",

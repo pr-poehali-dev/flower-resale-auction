@@ -67,8 +67,8 @@ async function req(url: string, options: RequestInit = {}) {
 
 // AUTH
 export const authApi = {
-  register: (name: string, phone: string, password: string, city?: string, email?: string) =>
-    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ action: "register", name, phone, password, city, email }) }),
+  register: (name: string, phone: string, password: string, city?: string, email?: string, ref_code?: string) =>
+    req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ action: "register", name, phone, password, city, email, ref_code }) }),
   login: (phone: string, password: string) =>
     req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ action: "login", phone, password }) }),
   me: () => req(`${URLS.auth}/?action=me`),

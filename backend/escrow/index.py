@@ -24,7 +24,7 @@ import psycopg2
 from datetime import datetime, timedelta
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p84229990_flower_resale_auctio")
-COMMISSION = 0.12  # 12%
+COMMISSION = 0.15  # 15%
 AUTO_CONFIRM_HOURS = 48
 
 CORS = {
@@ -93,7 +93,7 @@ def handler(event: dict, context) -> dict:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нельзя купить свой букет"})}
 
             amount = float(b[2])
-            commission = round(amount * COMMISSION, 2)
+            commission = round(amount * COMMISSION)  # округление до целых рублей
 
             with conn.cursor() as cur:
                 # Проверяем нет ли уже заказа
@@ -160,6 +160,22 @@ def handler(event: dict, context) -> dict:
                      f"Привет! Я оплатил(а) заказ на '{order[5]}'. Давайте договоримся о встрече для передачи.",
                      order_id)
                 )
+                # Реферальное начисление 5% от суммы покупателю-рефереру
+                cur.execute(f"SELECT referred_by FROM {SCHEMA}.users WHERE id = %s", (user["id"],))
+                ref_row = cur.fetchone()
+                if ref_row and ref_row[0]:
+                    referrer_id = ref_row[0]
+                    ref_bonus = round(amount * 0.05)
+                    if ref_bonus > 0:
+                        cur.execute(
+                            f"UPDATE {SCHEMA}.users SET balance = balance + %s, ref_earnings = ref_earnings + %s WHERE id = %s",
+                            (ref_bonus, ref_bonus, referrer_id)
+                        )
+                        cur.execute(
+                            f"INSERT INTO {SCHEMA}.referral_payouts (referrer_id, referee_id, order_id, amount) "
+                            f"VALUES (%s, %s, %s, %s)",
+                            (referrer_id, user["id"], order_id, ref_bonus)
+                        )
             conn.commit()
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({
                 "ok": True,

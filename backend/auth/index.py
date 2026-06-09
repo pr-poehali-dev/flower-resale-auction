@@ -58,7 +58,8 @@ def get_user_by_token(conn, token: str):
         cur.execute(
             f"SELECT u.id, u.name, u.phone, u.avatar_url, u.rating, u.reviews_count, "
             f"u.sales_count, u.purchases_count, u.balance, u.created_at, u.city, "
-            f"u.is_admin, u.payout_method, u.payout_details, u.email, u.email_verified "
+            f"u.is_admin, u.payout_method, u.payout_details, u.email, u.email_verified, "
+            f"u.ref_code, u.ref_earnings "
             f"FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
@@ -67,13 +68,14 @@ def get_user_by_token(conn, token: str):
         return None
     cols = ["id","name","phone","avatar_url","rating","reviews_count","sales_count",
             "purchases_count","balance","created_at","city","is_admin","payout_method",
-            "payout_details","email","email_verified"]
+            "payout_details","email","email_verified","ref_code","ref_earnings"]
     d = dict(zip(cols, row))
     d["rating"] = float(d["rating"])
     d["balance"] = float(d["balance"])
     d["created_at"] = str(d["created_at"])
     d["is_admin"] = bool(d["is_admin"])
     d["email_verified"] = bool(d["email_verified"])
+    d["ref_earnings"] = float(d["ref_earnings"] or 0)
     return d
 
 def handler(event: dict, context) -> dict:
@@ -115,12 +117,23 @@ def handler(event: dict, context) -> dict:
                         return {"statusCode": 409, "headers": CORS, "body": json.dumps({"error": "Email уже зарегистрирован"})}
                 city = body.get("city", "").strip() or None
                 email_token = make_token() if email else None
+                ref_input = (body.get("ref_code") or "").strip().upper() or None
+                # Находим реферера по коду
+                referrer_id = None
+                if ref_input:
+                    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE ref_code = %s", (ref_input,))
+                    ref_row = cur.fetchone()
+                    if ref_row:
+                        referrer_id = ref_row[0]
                 cur.execute(
-                    f"INSERT INTO {SCHEMA}.users (name, phone, password_hash, city, email, email_token, email_token_at) "
-                    f"VALUES (%s, %s, %s, %s, %s, %s, NOW()) RETURNING id",
-                    (name, phone, hash_pwd(password), city, email, email_token)
+                    f"INSERT INTO {SCHEMA}.users (name, phone, password_hash, city, email, email_token, email_token_at, referred_by) "
+                    f"VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s) RETURNING id",
+                    (name, phone, hash_pwd(password), city, email, email_token, referrer_id)
                 )
                 user_id = cur.fetchone()[0]
+                # Генерируем реф-код для нового пользователя
+                new_ref_code = secrets.token_hex(4).upper()
+                cur.execute(f"UPDATE {SCHEMA}.users SET ref_code = %s WHERE id = %s", (new_ref_code, user_id))
                 tok = make_token()
                 cur.execute(f"INSERT INTO {SCHEMA}.sessions (user_id, token) VALUES (%s, %s)", (user_id, tok))
             conn.commit()

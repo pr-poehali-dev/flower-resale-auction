@@ -18,6 +18,7 @@ interface User {
   purchases_count: number; balance: number; created_at: string; city?: string;
   is_admin?: boolean; payout_method?: string; payout_details?: string;
   email?: string; email_verified?: boolean;
+  ref_code?: string; ref_earnings?: number;
 }
 interface Deal {
   id: number; amount: number; commission: number; escrow_status: string;
@@ -250,6 +251,10 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [cityInput, setCityInput] = useState("");
   const [showCitySuggest, setShowCitySuggest] = useState(false);
   const [regEmail, setRegEmail] = useState("");
+  const [regRefCode, setRegRefCode] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("ref") || "";
+  });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
@@ -380,7 +385,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     setError(""); setLoading(true);
     const r = mode === "login"
       ? await authApi.login(phone, password)
-      : await authApi.register(name, phone, password, city || cityInput, regEmail || undefined);
+      : await authApi.register(name, phone, password, city || cityInput, regEmail || undefined, regRefCode || undefined);
     setLoading(false);
     if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
     await finishOAuth(r.data.token);
@@ -559,7 +564,15 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
               </label>
               <input value={regEmail} onChange={e => setRegEmail(e.target.value)} type="email"
                 className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
-                placeholder="your@email.com" onKeyDown={e => e.key === "Enter" && submit()} />
+                placeholder="your@email.com" />
+            </div>
+            <div>
+              <label className="text-white/50 text-sm mb-1.5 block">
+                Реферальный код <span className="text-white/25 text-xs font-normal">(если есть)</span>
+              </label>
+              <input value={regRefCode} onChange={e => setRegRefCode(e.target.value.toUpperCase())} type="text"
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-purple-500 font-mono tracking-widest"
+                placeholder="ABCD1234" maxLength={8} onKeyDown={e => e.key === "Enter" && submit()} />
             </div>
           </div>
 
@@ -1737,7 +1750,12 @@ function ChatWindow({ chat, user, onBack }: { chat: Chat; user: User; onBack: ()
 
 /* ─── PROFILE SCREEN ─────────────────────────────────────── */
 function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onLogout: () => void; onStartTour?: () => void }) {
-  const [tab, setTab] = useState<"about" | "reviews" | "chat">("about");
+  const [tab, setTab] = useState<"about" | "reviews" | "chat" | "referral">("about");
+  const [copied, setCopied] = useState(false);
+
+  const copyRef = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
   const [reviews, setReviews] = useState<Review[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [sales, setSales] = useState<{ id: number; title: string; current_price: number; status: string; bids_count: number }[]>([]);
@@ -1883,8 +1901,8 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
       </div>
 
       <div className="flex gap-2 mb-4">
-        {([["about", "Кабинет"], ["reviews", "Отзывы"], ["chat", "Чаты"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)}
+        {([["about", "Кабинет"], ["reviews", "Отзывы"], ["chat", "Чаты"], ["referral", "Рефералы"]] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k as typeof tab)}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all"
             style={tab === k ? { background: "var(--grad-main)", color: "#fff" } : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
             {l}
@@ -2175,6 +2193,90 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
               <p className="text-white/30 text-xs mt-2">{timeAgo(r.created_at)}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === "referral" && (
+        <div className="space-y-4 animate-fade-in-up">
+          {/* Заработок */}
+          <div className="rounded-2xl p-5 relative overflow-hidden"
+            style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.2), rgba(255,61,139,0.15))", border: "1px solid rgba(168,85,247,0.3)" }}>
+            <p className="text-white/50 text-xs font-medium uppercase tracking-wide mb-1">Реферальный заработок</p>
+            <p className="font-oswald text-3xl font-bold" style={{ color: "#a855f7" }}>
+              {formatPrice(user.ref_earnings || 0)}
+            </p>
+            <p className="text-white/40 text-xs mt-1">Зачисляется на баланс автоматически</p>
+          </div>
+
+          {/* Реферальный код */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-white/50 text-sm font-medium mb-3 flex items-center gap-2">
+              <Icon name="Tag" size={14} />
+              Ваш реферальный код
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 glass rounded-xl px-4 py-3 text-center">
+                <span className="font-oswald text-2xl font-bold tracking-widest" style={{ color: "#a855f7" }}>
+                  {user.ref_code || "—"}
+                </span>
+              </div>
+              <button onClick={() => copyRef(user.ref_code || "")}
+                className="glass px-4 py-3 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+                style={{ color: copied ? "#4ade80" : "rgba(255,255,255,0.6)" }}>
+                <Icon name={copied ? "Check" : "Copy"} size={15} />
+                {copied ? "Скопировано" : "Копировать"}
+              </button>
+            </div>
+          </div>
+
+          {/* Реферальная ссылка */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-white/50 text-sm font-medium mb-3 flex items-center gap-2">
+              <Icon name="Link" size={14} />
+              Реферальная ссылка
+            </p>
+            <div className="glass rounded-xl px-3 py-2.5 text-xs text-white/50 mb-2 break-all">
+              {`https://flowerflip.ru/?ref=${user.ref_code}`}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => copyRef(`https://flowerflip.ru/?ref=${user.ref_code}`)}
+                className="flex-1 glass rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2"
+                style={{ color: "rgba(255,255,255,0.6)" }}>
+                <Icon name="Copy" size={14} />
+                Копировать ссылку
+              </button>
+              <button onClick={() => {
+                const text = `🌸 FlowerFlip — аукцион живых букетов!\nПокупай свежие цветы дешевле рынка.\nhttps://flowerflip.ru/?ref=${user.ref_code}`;
+                if (navigator.share) navigator.share({ title: "FlowerFlip", text, url: `https://flowerflip.ru/?ref=${user.ref_code}` });
+                else copyRef(`https://flowerflip.ru/?ref=${user.ref_code}`);
+              }}
+                className="flex-1 btn-gradient rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2">
+                <Icon name="Share2" size={14} />
+                Поделиться
+              </button>
+            </div>
+          </div>
+
+          {/* Как работает */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-white/50 text-sm font-medium mb-3">Как работает</p>
+            <div className="space-y-3">
+              {[
+                { icon: "Share2", text: "Поделитесь ссылкой или кодом с друзьями" },
+                { icon: "UserPlus", text: "Друг регистрируется и вводит ваш код" },
+                { icon: "ShoppingBag", text: "Когда друг совершает покупку — вы получаете 5% от суммы сделки" },
+                { icon: "Wallet", text: "Деньги зачисляются на ваш баланс автоматически" },
+              ].map((s, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: "rgba(168,85,247,0.15)" }}>
+                    <Icon name={s.icon as "Share2"} size={14} style={{ color: "#a855f7" }} />
+                  </div>
+                  <p className="text-white/60 text-sm pt-1.5">{s.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
