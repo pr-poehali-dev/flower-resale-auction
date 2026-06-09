@@ -32,6 +32,7 @@ def get_user(conn, token: str):
 
 
 def yookassa_create_payment(amount: float, return_url: str, user_id: int):
+    import urllib.error
     shop_id = os.environ["YOOKASSA_SHOP_ID"]
     secret = os.environ["YOOKASSA_SECRET_KEY"]
     auth = base64.b64encode(f"{shop_id}:{secret}".encode()).decode()
@@ -42,7 +43,7 @@ def yookassa_create_payment(amount: float, return_url: str, user_id: int):
         "description": f"Пополнение баланса FlowerFlip (user {user_id})",
         "metadata": {"user_id": str(user_id)},
     }).encode()
-    req = urllib.request.Request(
+    request = urllib.request.Request(
         "https://api.yookassa.ru/v3/payments",
         data=payload,
         headers={
@@ -52,8 +53,12 @@ def yookassa_create_payment(amount: float, return_url: str, user_id: int):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(request, timeout=20) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode()
+        raise Exception(f"ЮКасса ошибка {e.code}: {error_body}")
 
 
 def handler(event: dict, context) -> dict:
@@ -78,7 +83,10 @@ def handler(event: dict, context) -> dict:
             if amount < 10:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Минимальная сумма 10 ₽"})}
             return_url = body.get("return_url", "https://flowerflip.ru")
-            payment = yookassa_create_payment(amount, return_url, user["id"])
+            try:
+                payment = yookassa_create_payment(amount, return_url, user["id"])
+            except Exception as e:
+                return {"statusCode": 502, "headers": CORS, "body": json.dumps({"error": str(e)})}
             confirm_url = payment.get("confirmation", {}).get("confirmation_url")
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({
                 "ok": True, "confirmation_url": confirm_url, "payment_id": payment.get("id")
