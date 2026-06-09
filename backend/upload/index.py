@@ -54,14 +54,29 @@ def handler(event: dict, context) -> dict:
             return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "image required"})}
 
         image_data = base64.b64decode(image_b64)
-        ext = "jpg" if "jpeg" in content_type else content_type.split("/")[-1]
+
+        # Определяем расширение и content_type
+        ct = (content_type or "image/jpeg").lower()
+        if "jpeg" in ct or "jpg" in ct:
+            ext, ct = "jpg", "image/jpeg"
+        elif "png" in ct:
+            ext, ct = "png", "image/png"
+        elif "webp" in ct:
+            ext, ct = "webp", "image/webp"
+        elif "gif" in ct:
+            ext, ct = "gif", "image/gif"
+        elif "heic" in ct or "heif" in ct:
+            ext, ct = "jpg", "image/jpeg"
+        else:
+            ext, ct = "jpg", "image/jpeg"
+
         key = f"bouquets/{uuid.uuid4()}.{ext}"
 
         s3 = get_s3()
-        s3.put_object(Bucket="files", Key=key, Body=image_data, ContentType=content_type)
+        s3.put_object(Bucket="files", Key=key, Body=image_data, ContentType=ct)
 
         access_key = os.environ["AWS_ACCESS_KEY_ID"]
-        url = f"https://cdn.poehali.dev/projects/{access_key}/files/{key}"
+        url = f"https://cdn.poehali.dev/projects/{access_key}/bucket/{key}"
         return {"statusCode": 200, "headers": CORS, "body": json.dumps({"url": url})}
     finally:
         conn.close()

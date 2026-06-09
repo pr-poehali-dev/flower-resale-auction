@@ -1051,29 +1051,56 @@ function SellScreen({ user }: { user: User | null }) {
 
       {step === 1 && (
         <div className="animate-fade-in-up space-y-4">
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-          <div onClick={() => fileRef.current?.click()}
-            className="rounded-3xl border-2 border-dashed mb-2 flex flex-col items-center justify-center py-10 cursor-pointer"
-            style={{ borderColor: "rgba(255,61,139,0.3)", background: "rgba(255,61,139,0.05)" }}>
-            {uploading ? (
-              <div className="animate-spin rounded-full w-8 h-8 border-2 border-pink-400 border-t-transparent" />
-            ) : images.length > 0 ? (
-              <div className="flex gap-2 flex-wrap justify-center px-4">
-                {images.map((url, i) => <img key={i} src={url} className="w-16 h-16 rounded-xl object-cover" />)}
-                <div className="w-16 h-16 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,61,139,0.15)" }}>
-                  <Icon name="Plus" size={24} style={{ color: "var(--neon-pink)" }} />
-                </div>
+          <input ref={fileRef} type="file" accept="image/*,image/heic,image/heif" className="hidden" onChange={handleFile} />
+          {images.length > 0 ? (
+            <div className="mb-2">
+              <div className="flex gap-2 flex-wrap mb-2">
+                {images.map((url, i) => (
+                  <div key={i} className="relative group">
+                    <img src={url} className="w-20 h-20 rounded-xl object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setImages(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: "#ef4444", boxShadow: "0 2px 8px rgba(0,0,0,0.5)" }}>
+                      <Icon name="X" size={11} className="text-white" />
+                    </button>
+                    {i === 0 && (
+                      <span className="absolute bottom-1 left-1 text-white text-xs px-1.5 py-0.5 rounded-md font-medium"
+                        style={{ background: "rgba(0,0,0,0.6)", fontSize: "9px" }}>гл.</span>
+                    )}
+                  </div>
+                ))}
+                {images.length < 5 && (
+                  <button type="button" onClick={() => fileRef.current?.click()}
+                    className="w-20 h-20 rounded-xl flex flex-col items-center justify-center gap-1 border-2 border-dashed transition-colors"
+                    style={{ borderColor: "rgba(255,61,139,0.4)", background: "rgba(255,61,139,0.05)" }}>
+                    {uploading
+                      ? <div className="animate-spin rounded-full w-6 h-6 border-2 border-pink-400 border-t-transparent" />
+                      : <><Icon name="Plus" size={20} style={{ color: "var(--neon-pink)" }} /><span className="text-white/40 text-xs">фото</span></>
+                    }
+                  </button>
+                )}
               </div>
-            ) : (
-              <>
-                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 animate-float" style={{ background: "rgba(255,61,139,0.15)" }}>
-                  <Icon name="Camera" size={26} style={{ color: "var(--neon-pink)" }} />
-                </div>
-                <p className="text-white/60 font-medium">Добавить фото</p>
-                <p className="text-white/30 text-sm mt-1">до 5 фотографий</p>
-              </>
-            )}
-          </div>
+              <p className="text-white/30 text-xs">{images.length} из 5 · первое — главное</p>
+            </div>
+          ) : (
+            <div onClick={() => fileRef.current?.click()}
+              className="rounded-3xl border-2 border-dashed mb-2 flex flex-col items-center justify-center py-10 cursor-pointer"
+              style={{ borderColor: "rgba(255,61,139,0.3)", background: "rgba(255,61,139,0.05)" }}>
+              {uploading ? (
+                <div className="animate-spin rounded-full w-8 h-8 border-2 border-pink-400 border-t-transparent" />
+              ) : (
+                <>
+                  <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 animate-float" style={{ background: "rgba(255,61,139,0.15)" }}>
+                    <Icon name="Camera" size={26} style={{ color: "var(--neon-pink)" }} />
+                  </div>
+                  <p className="text-white/60 font-medium">Добавить фото</p>
+                  <p className="text-white/30 text-sm mt-1">до 5 · jpg, png, webp, heic</p>
+                </>
+              )}
+            </div>
+          )}
           <div>
             <label className="text-white/50 text-sm mb-1.5 block">Название букета</label>
             <input value={title} onChange={e => setTitle(e.target.value)}
