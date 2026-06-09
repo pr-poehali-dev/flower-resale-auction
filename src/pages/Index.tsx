@@ -877,18 +877,35 @@ function CatalogScreen({ user }: { user: User | null }) {
       <div className="glass rounded-2xl p-4 mb-5">
         <div className="flex justify-between items-center mb-2">
           <span className="text-white/50 text-sm">Макс. цена</span>
-          <span className="gradient-text font-oswald font-bold text-lg">
-            {noPriceLimit ? "Без ограничения" : formatPrice(priceMax)}
-          </span>
+          {noPriceLimit ? (
+            <span className="gradient-text font-oswald font-bold text-lg">Без ограничения</span>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                value={priceMax}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  if (v >= 0) setPriceMax(Math.min(v, PRICE_CAP));
+                }}
+                onBlur={e => { if (!e.target.value || Number(e.target.value) < 500) setPriceMax(500); }}
+                className="w-28 bg-transparent text-right font-oswald font-bold text-lg outline-none border-b border-pink-500/50 focus:border-pink-500 text-white transition-colors"
+                style={{ color: "var(--neon-pink)" }}
+              />
+              <span className="text-white/50 font-oswald font-bold text-lg">₽</span>
+            </div>
+          )}
         </div>
-        <input type="range" min={500} max={PRICE_CAP} step={500} value={priceMax}
+        <input type="range" min={500} max={PRICE_CAP} step={500} value={noPriceLimit ? PRICE_CAP : priceMax}
           onChange={e => setPriceMax(Number(e.target.value))} className="w-full accent-pink-500" />
-        {!noPriceLimit && (
-          <button onClick={() => setPriceMax(PRICE_CAP)}
-            className="text-pink-400 text-xs mt-2 hover:text-pink-300 transition-colors">
-            Снять ограничение цены
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-white/25 text-xs">500 ₽</span>
+          <button onClick={() => setPriceMax(noPriceLimit ? 5000 : PRICE_CAP)}
+            className="text-pink-400 text-xs hover:text-pink-300 transition-colors">
+            {noPriceLimit ? "Задать ограничение" : "Снять ограничение"}
           </button>
-        )}
+          <span className="text-white/25 text-xs">∞</span>
+        </div>
       </div>
       <div className="flex items-center justify-between mb-3">
         <span className="text-white/50 text-sm">Найдено: {filtered.length} букетов</span>
@@ -1502,16 +1519,29 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
     if (res === "ios") setShowIosGuide(true);
   };
 
+  const [cancelConfirm, setCancelConfirm] = useState<number | null>(null);
+  const [cancelMsg, setCancelMsg] = useState("");
+
   const loadWithdrawals = useCallback(() => {
     profileApi.withdrawals().then(r => { if (r.ok) setWithdrawals(r.data.withdrawals); });
   }, []);
+
+  const loadSales = useCallback(() => {
+    profileApi.mySales().then(r => { if (r.ok) setSales(r.data.sales); });
+  }, []);
+
+  const cancelSale = async (id: number) => {
+    const r = await bouquetsApi.cancel(id);
+    if (r.ok) { setCancelConfirm(null); setCancelMsg(""); loadSales(); }
+    else { setCancelMsg(r.data.error || "Ошибка"); }
+  };
 
   useEffect(() => {
     if (!user) return;
     if (tab === "reviews") profileApi.reviews().then(r => { if (r.ok) setReviews(r.data.reviews); });
     if (tab === "chat") profileApi.chats().then(r => { if (r.ok) setChats(r.data.chats); });
-    if (tab === "about") { profileApi.mySales().then(r => { if (r.ok) setSales(r.data.sales); }); loadWithdrawals(); }
-  }, [tab, user, loadWithdrawals]);
+    if (tab === "about") { loadSales(); loadWithdrawals(); }
+  }, [tab, user, loadSales, loadWithdrawals]);
 
   if (!user) return (
     <div className="text-center py-20">
@@ -1669,17 +1699,54 @@ function ProfileScreen({ user, onLogout }: { user: User | null; onLogout: () => 
           </div>
           <div className="glass rounded-2xl p-4">
             <p className="text-white/50 text-sm mb-3 font-medium">Мои аукционы</p>
+            {cancelMsg && <p className="text-red-400 text-xs mb-2">{cancelMsg}</p>}
             {sales.length === 0 ? (
               <p className="text-white/30 text-sm">Вы ещё не выставляли букеты</p>
             ) : (
               <div className="space-y-2">
-                {sales.slice(0, 3).map(s => (
-                  <div key={s.id} className="flex items-center justify-between">
-                    <span className="text-white/70 text-sm truncate flex-1">{s.title}</span>
-                    <div className="flex items-center gap-2 ml-2">
-                      <span className="gradient-text text-sm font-semibold">{formatPrice(s.current_price)}</span>
-                      <span className="text-white/30 text-xs">{s.bids_count} ст.</span>
+                {sales.map(s => (
+                  <div key={s.id} className="rounded-xl p-3 flex items-center gap-3"
+                    style={{ background: "rgba(255,255,255,0.04)" }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white/80 text-sm truncate">{s.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="gradient-text text-sm font-semibold">{formatPrice(s.current_price)}</span>
+                        <span className="text-white/30 text-xs">{s.bids_count} ст.</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded-full"
+                          style={{
+                            background: s.status === "active" ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.07)",
+                            color: s.status === "active" ? "#4ade80" : "rgba(255,255,255,0.3)"
+                          }}>
+                          {s.status === "active" ? "активен" : s.status === "won" ? "продан" : s.status === "expired" ? "истёк" : s.status}
+                        </span>
+                      </div>
                     </div>
+                    {s.status === "active" && s.bids_count === 0 && (
+                      cancelConfirm === s.id ? (
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button onClick={() => cancelSale(s.id)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-white"
+                            style={{ background: "rgba(239,68,68,0.8)" }}>
+                            Да, снять
+                          </button>
+                          <button onClick={() => { setCancelConfirm(null); setCancelMsg(""); }}
+                            className="px-2.5 py-1.5 rounded-lg text-xs text-white/50 glass">
+                            Нет
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setCancelConfirm(s.id); setCancelMsg(""); }}
+                          className="flex-shrink-0 glass p-2 rounded-xl hover:text-red-400 transition-colors text-white/30"
+                          title="Снять с аукциона">
+                          <Icon name="Trash2" size={15} />
+                        </button>
+                      )
+                    )}
+                    {s.status === "active" && s.bids_count > 0 && (
+                      <span className="flex-shrink-0 text-white/20 text-xs" title="Есть ставки — нельзя снять">
+                        <Icon name="Lock" size={13} />
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

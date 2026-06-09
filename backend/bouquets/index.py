@@ -277,6 +277,31 @@ def handler(event: dict, context) -> dict:
                 rows = cur.fetchall()
             return {"statusCode": 200, "headers": CORS, "body": json.dumps({"bouquets": [row_to_bouquet(r, cols) for r in rows]})}
 
+        # POST cancel — продавец снимает свой букет с аукциона
+        if action == "cancel" and method == "POST":
+            if not user:
+                return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            bouquet_id = int(body.get("bouquet_id", 0))
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT seller_id, status, bids_count FROM {SCHEMA}.bouquets WHERE id = %s",
+                    (bouquet_id,)
+                )
+                row = cur.fetchone()
+            if not row:
+                return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Букет не найден"})}
+            if row[0] != user["id"]:
+                return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Это не ваш букет"})}
+            if row[1] != "active":
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Снять можно только активный аукцион"})}
+            if row[2] > 0:
+                return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нельзя снять букет, на который уже есть ставки"})}
+            with conn.cursor() as cur:
+                cur.execute(f"UPDATE {SCHEMA}.bouquets SET status = 'cancelled' WHERE id = %s", (bouquet_id,))
+                cur.execute(f"UPDATE {SCHEMA}.users SET sales_count = GREATEST(sales_count - 1, 0) WHERE id = %s", (user["id"],))
+            conn.commit()
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Unknown action"})}
     finally:
         conn.close()

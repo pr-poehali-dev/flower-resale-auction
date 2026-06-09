@@ -101,6 +101,8 @@ export const bouquetsApi = {
   favorite: (bouquet_id: number, add: boolean) =>
     req(`${URLS.bouquets}/?action=favorite`, { method: "POST", body: JSON.stringify({ action: "favorite", bouquet_id, add }) }),
   favorites: () => req(`${URLS.bouquets}/?action=favorites`),
+  cancel: (bouquet_id: number) =>
+    req(`${URLS.bouquets}/?action=cancel`, { method: "POST", body: JSON.stringify({ action: "cancel", bouquet_id }) }),
 };
 
 // PROFILE
