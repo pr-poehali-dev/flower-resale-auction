@@ -1306,6 +1306,14 @@ function DealsScreen({ user }: { user: User | null }) {
     }
   };
 
+  const doPay = async (deal: Deal) => {
+    setActionLoading(true); setMsg("");
+    const r = await escrowApi.pay(deal.id);
+    setActionLoading(false);
+    if (r.ok) { load(); setActive(null); }
+    else setMsg(r.data.error || "Ошибка оплаты");
+  };
+
   const doConfirm = async (deal: Deal) => {
     setActionLoading(true); setMsg("");
     const r = await escrowApi.confirm(deal.id);
@@ -1370,6 +1378,48 @@ function DealsScreen({ user }: { user: User | null }) {
             </div>
           </div>
         </div>
+
+        {/* Оплата (waiting_payment) */}
+        {active.escrow_status === "waiting_payment" && active.is_buyer && (
+          <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(168,85,247,0.35)" }}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(168,85,247,0.15)" }}>
+                <Icon name="ShoppingBag" size={18} style={{ color: "#a855f7" }} />
+              </div>
+              <div>
+                <p className="text-white font-medium text-sm">Вы выиграли аукцион!</p>
+                <p className="text-white/50 text-xs mt-0.5">Оплатите букет с баланса — деньги заморозятся до получения</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl mb-3"
+              style={{ background: "rgba(255,255,255,0.04)" }}>
+              <span className="text-white/60 text-sm">Сумма к оплате</span>
+              <span className="gradient-text font-oswald text-xl font-bold">{formatPrice(active.amount)}</span>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl mb-4"
+              style={{ background: "rgba(255,255,255,0.04)" }}>
+              <span className="text-white/60 text-sm">Ваш баланс</span>
+              <span className="text-white font-semibold">{formatPrice(user!.balance)}</span>
+            </div>
+            {user!.balance < active.amount ? (
+              <div>
+                <div className="flex items-center gap-2 p-3 rounded-xl mb-3"
+                  style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                  <Icon name="AlertCircle" size={14} className="text-red-400 flex-shrink-0" />
+                  <p className="text-red-400 text-xs">Недостаточно средств. Пополните баланс в профиле.</p>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => doPay(active)} disabled={actionLoading}
+                className="btn-gradient w-full rounded-2xl py-4 font-oswald text-lg tracking-wide disabled:opacity-50 flex items-center justify-center gap-2">
+                <Icon name="CreditCard" size={20} />
+                {actionLoading ? "Обрабатываем..." : `ОПЛАТИТЬ ${formatPrice(active.amount)}`}
+              </button>
+            )}
+            {msg && <p className="text-red-400 text-xs mt-2 text-center">{msg}</p>}
+          </div>
+        )}
 
         {/* Контакты (после оплаты) */}
         {active.escrow_status === "paid" && (
