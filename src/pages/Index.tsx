@@ -651,7 +651,11 @@ function BidModal({ bouquet, onClose, onBid }: { bouquet: Bouquet; onClose: () =
 
 /* ─── AUCTION CARD ───────────────────────────────────────── */
 function AuctionCard({ b, onBid, onLike }: { b: Bouquet; onBid: () => void; onLike: () => void }) {
-  useTick();
+  const [, setT] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setT(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
   const urgent = isUrgent(b.ends_at);
   const img = b.image_urls[0] || "/placeholder.svg";
   return (
@@ -694,6 +698,60 @@ function AuctionCard({ b, onBid, onLike }: { b: Bouquet; onBid: () => void; onLi
           ))}
         </div>
         <button onClick={onBid} className="btn-gradient w-full rounded-xl py-2.5 text-sm font-semibold">Сделать ставку</button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── CATALOG CARD ───────────────────────────────────────── */
+function CatalogCard({ b, onLike }: { b: Bouquet; onLike: () => void }) {
+  const [, setT] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setT(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const urgent = isUrgent(b.ends_at);
+  const timeStr = formatTime(b.ends_at);
+  return (
+    <div className="glass rounded-2xl overflow-hidden card-hover flex">
+      <div className="relative flex-shrink-0">
+        <img src={b.image_urls[0] || "/placeholder.svg"} className="w-28 h-28 object-cover" />
+        <div className={`absolute bottom-1.5 left-1.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-bold ${urgent ? "animate-timer" : "text-white"}`}
+          style={{ background: urgent ? "rgba(255,61,139,0.35)" : "rgba(0,0,0,0.6)", border: urgent ? "1px solid rgba(255,61,139,0.5)" : "none" }}>
+          <Icon name="Clock" size={9} />{timeStr}
+        </div>
+      </div>
+      <div className="p-3 flex flex-col justify-between flex-1 min-w-0">
+        <div>
+          <div className="flex items-center justify-between">
+            <h3 className="font-oswald text-base font-semibold text-white truncate">{b.title}</h3>
+            <button onClick={onLike} className="ml-2 flex-shrink-0">
+              <Icon name="Heart" size={16} className={b.liked ? "text-pink-400 fill-pink-400" : "text-white/30"} />
+            </button>
+          </div>
+          <div className="flex items-center gap-1 mt-0.5 mb-1">
+            <Icon name="Star" size={10} className="text-yellow-400 fill-yellow-400" />
+            <span className="text-white/40 text-xs">{b.seller_rating?.toFixed(1)} · {b.seller_name}</span>
+          </div>
+          {b.city && (
+            <div className="flex items-center gap-1 mb-1">
+              <Icon name="MapPin" size={9} className="text-pink-400" />
+              <span className="text-white/30 text-xs">{b.city}{b.district ? `, ${b.district}` : ""}</span>
+            </div>
+          )}
+          <div className="flex gap-1 flex-wrap">
+            {(b.flowers || []).slice(0, 2).map(t => (
+              <span key={t} className="px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(168,85,247,0.12)", color: "#c084fc" }}>#{t}</span>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="gradient-text font-oswald text-lg font-bold">{formatPrice(b.current_price)}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-white/30 text-xs">{b.bids_count} ст.</span>
+            <span className="text-white/40 text-xs">{b.freshness}</span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -948,32 +1006,7 @@ function CatalogScreen({ user }: { user: User | null }) {
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map(b => (
-            <div key={b.id} className="glass rounded-2xl overflow-hidden card-hover flex">
-              <img src={b.image_urls[0] || "/placeholder.svg"} className="w-28 h-28 object-cover flex-shrink-0" />
-              <div className="p-3 flex flex-col justify-between flex-1 min-w-0">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-oswald text-base font-semibold text-white truncate">{b.title}</h3>
-                    <button onClick={() => toggleLike(b)} className="ml-2 flex-shrink-0">
-                      <Icon name="Heart" size={16} className={b.liked ? "text-pink-400 fill-pink-400" : "text-white/30"} />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1 mt-0.5 mb-1">
-                    <Icon name="Star" size={10} className="text-yellow-400 fill-yellow-400" />
-                    <span className="text-white/40 text-xs">{b.seller_rating?.toFixed(1)} · {b.seller_name}</span>
-                  </div>
-                  <div className="flex gap-1 flex-wrap">
-                    {(b.flowers || []).slice(0, 2).map(t => (
-                      <span key={t} className="px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(168,85,247,0.12)", color: "#c084fc" }}>#{t}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="gradient-text font-oswald text-lg font-bold">{formatPrice(b.current_price)}</span>
-                  <span className="text-white/40 text-xs">{b.freshness}</span>
-                </div>
-              </div>
-            </div>
+            <CatalogCard key={b.id} b={b} onLike={() => toggleLike(b)} />
           ))}
           {filtered.length === 0 && (
             <div className="text-center py-12 text-white/30">
