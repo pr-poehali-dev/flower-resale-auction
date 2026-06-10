@@ -1139,6 +1139,8 @@ function SellScreen({ user }: { user: User | null }) {
   };
 
   const submit = async () => {
+    const priceVal = parseFloat(price);
+    if (!priceVal || priceVal < 100) { setError("Минимальная цена — 100 ₽"); return; }
     setLoading(true); setError("");
     const r = await bouquetsApi.create({
       title, description: "",
@@ -1266,11 +1268,15 @@ function SellScreen({ user }: { user: User | null }) {
           </div>
           <div>
             <label className="text-white/50 text-sm mb-1.5 block">Начальная цена</label>
-            <div className="glass rounded-xl px-4 py-3 flex items-center gap-2">
-              <input value={price} onChange={e => setPrice(e.target.value)} type="number"
+            <div className="glass rounded-xl px-4 py-3 flex items-center gap-2"
+              style={parseFloat(price) > 0 && parseFloat(price) < 100 ? { border: "1px solid rgba(239,68,68,0.5)" } : {}}>
+              <input value={price} onChange={e => setPrice(e.target.value)} type="number" min="100"
                 className="flex-1 bg-transparent text-white text-xl font-oswald font-bold outline-none placeholder:text-white/20" placeholder="500" />
               <span className="text-white/40 font-oswald">₽</span>
             </div>
+            {parseFloat(price) > 0 && parseFloat(price) < 100 && (
+              <p className="text-red-400 text-xs mt-1">Минимальная цена — 100 ₽</p>
+            )}
             {parseFloat(price) > 0 && (() => {
               const amt = parseFloat(price);
               const yk = Math.round(amt * 0.055 * 100) / 100;
