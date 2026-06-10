@@ -1271,6 +1271,28 @@ function SellScreen({ user }: { user: User | null }) {
                 className="flex-1 bg-transparent text-white text-xl font-oswald font-bold outline-none placeholder:text-white/20" placeholder="500" />
               <span className="text-white/40 font-oswald">₽</span>
             </div>
+            {parseFloat(price) > 0 && (() => {
+              const amt = parseFloat(price);
+              const yk = Math.round(amt * 0.055 * 100) / 100;
+              const platform = Math.round((amt - yk) * 0.15 * 100) / 100;
+              const youGet = Math.round((amt - yk - platform) * 100) / 100;
+              return (
+                <div className="mt-2 glass rounded-xl p-3 space-y-1 text-xs">
+                  <div className="flex justify-between text-white/40">
+                    <span>Комиссия ЮКассы (~5.5%)</span>
+                    <span>−{formatPrice(yk)}</span>
+                  </div>
+                  <div className="flex justify-between text-white/40">
+                    <span>Комиссия платформы (15%)</span>
+                    <span>−{formatPrice(platform)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium pt-0.5 border-t border-white/10">
+                    <span className="text-white/70">Вы получите</span>
+                    <span className="text-green-400">{formatPrice(youGet)}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
           <div>
             <label className="text-white/50 text-sm mb-1.5 block">Длительность аукциона</label>
