@@ -2007,9 +2007,9 @@ function ProfileScreen({ user, onLogout, onUpdate, onStartTour }: { user: User |
 
   const uploadAvatar = async (file: File) => {
     setAvatarUploading(true);
-    const r = await uploadApi.upload(file);
-    if (r.ok) {
-      const r2 = await authApi.update({ avatar_url: r.data.url });
+    const url = await uploadApi.upload(file);
+    if (url) {
+      const r2 = await authApi.update({ avatar_url: url });
       if (r2.ok) onUpdate?.();
     }
     setAvatarUploading(false);
