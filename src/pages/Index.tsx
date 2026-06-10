@@ -1512,7 +1512,10 @@ function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?:
               </div>
               <div className="text-right">
                 <p className="gradient-text font-oswald text-xl font-bold">{formatPrice(active.amount)}</p>
-                <p className="text-white/40 text-xs">комиссия {formatPrice(active.commission)}</p>
+                {active.is_seller
+                  ? <p className="text-green-400 text-xs font-medium">вы получите {formatPrice(active.amount - active.commission)}</p>
+                  : <p className="text-white/40 text-xs">комиссия {formatPrice(active.commission)}</p>
+                }
               </div>
             </div>
             <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl" style={{ background: `${st.color}15`, border: `1px solid ${st.color}40` }}>
@@ -1658,9 +1661,27 @@ function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?:
           <div className="glass rounded-2xl p-4 mb-4" style={{ border: "1px solid rgba(255,61,139,0.2)" }}>
             <div className="flex items-start gap-3">
               <Icon name="Info" size={16} className="text-pink-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-white/60 space-y-1">
+              <div className="text-sm text-white/60 space-y-2 flex-1">
                 <p>Передайте букет покупателю лично. Деньги поступят на баланс после его подтверждения.</p>
-                <p className="text-white/40">Получите: <span className="text-green-400 font-semibold">{formatPrice(active.amount - active.commission)}</span></p>
+                <div className="glass rounded-xl p-3 space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-white/40">Сумма сделки</span>
+                    <span className="text-white/70">{formatPrice(active.amount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/40">Комиссия ЮКассы (~5.5%)</span>
+                    <span className="text-red-400">−{formatPrice(Math.round(active.amount * 0.055 * 100) / 100)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/40">Комиссия платформы (15%)</span>
+                    <span className="text-red-400">−{formatPrice(Math.round((active.amount - active.amount * 0.055) * 0.15 * 100) / 100)}</span>
+                  </div>
+                  <div className="h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                  <div className="flex justify-between">
+                    <span className="text-white font-medium">Вы получите</span>
+                    <span className="text-green-400 font-bold">{formatPrice(active.amount - active.commission)}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
