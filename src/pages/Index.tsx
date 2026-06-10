@@ -2078,35 +2078,6 @@ function ProfileScreen({ user, onLogout, onUpdate, onStartTour }: { user: User |
       {tab === "about" && (
         <div className="space-y-3 animate-fade-in-up">
 
-          {/* Email */}
-          <div className="glass rounded-2xl p-4">
-            <p className="text-white/50 text-sm mb-3 font-medium flex items-center gap-2">
-              <Icon name="Mail" size={14} />
-              Email
-              {user.email && user.email_verified && <span className="text-green-400 text-xs ml-1 flex items-center gap-1"><Icon name="CheckCircle2" size={11} />подтверждён</span>}
-              {user.email && !user.email_verified && <span className="text-yellow-400 text-xs ml-1">· не подтверждён</span>}
-            </p>
-            <div className="flex gap-2">
-              <input value={emailInput} onChange={e => setEmailInput(e.target.value)} type="email"
-                className="flex-1 glass rounded-xl px-3 py-2.5 text-white placeholder:text-white/30 text-sm outline-none"
-                placeholder="your@email.com" />
-              <button onClick={saveEmail} disabled={emailSaving || !emailInput.trim() || emailInput === user.email}
-                className="btn-gradient px-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-40">
-                {emailSaving ? "..." : "Сохранить"}
-              </button>
-            </div>
-            {user.email && !user.email_verified && (
-              <div className="mt-2 flex items-center justify-between p-2.5 rounded-xl"
-                style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.2)" }}>
-                <span className="text-yellow-400 text-xs">Подтвердите email — проверьте почту</span>
-                <button onClick={resendVerify} className="text-yellow-400 text-xs underline ml-2 hover:text-yellow-300">
-                  Отправить снова
-                </button>
-              </div>
-            )}
-            {emailMsg && <p className={`text-xs mt-2 ${emailMsg.includes("Ошибка") || emailMsg.includes("уже") ? "text-red-400" : "text-green-400"}`}>{emailMsg}</p>}
-          </div>
-
           <div className="glass rounded-2xl p-4">
             <p className="text-white/50 text-sm mb-3 font-medium">Баланс и выплаты</p>
             <p className="gradient-text font-oswald text-3xl font-bold mb-1">{formatPrice(user.balance)}</p>
@@ -2411,9 +2382,10 @@ function ProfileScreen({ user, onLogout, onUpdate, onStartTour }: { user: User |
                 Копировать ссылку
               </button>
               <button onClick={() => {
-                const text = `🌸 FlowerFlip — аукцион живых букетов!\nПокупай свежие цветы дешевле рынка.\nhttps://flowerflip.ru/?ref=${user.ref_code}`;
-                if (navigator.share) navigator.share({ title: "FlowerFlip", text, url: `https://flowerflip.ru/?ref=${user.ref_code}` });
-                else copyRef(`https://flowerflip.ru/?ref=${user.ref_code}`);
+                const shareUrl = `https://flowerflip.ru/?ref=${user.ref_code}`;
+                const text = `🌸 FlowerFlip — аукцион живых букетов!\nПокупай свежие цветы дешевле рынка.\n${shareUrl}`;
+                if (navigator.share) navigator.share({ title: "FlowerFlip — аукцион живых букетов", text, url: shareUrl });
+                else copyRef(shareUrl);
               }}
                 className="flex-1 btn-gradient rounded-xl py-2.5 text-sm font-medium flex items-center justify-center gap-2">
                 <Icon name="Share2" size={14} />
