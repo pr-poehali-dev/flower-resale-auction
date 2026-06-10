@@ -24,7 +24,8 @@ import psycopg2
 from datetime import datetime, timedelta
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p84229990_flower_resale_auctio")
-COMMISSION = 0.15  # 15%
+COMMISSION = 0.15        # 15% — комиссия платформы
+YOOKASSA_FEE = 0.055    # 5.5% — комиссия ЮКассы (вычитается из поступившей суммы)
 AUTO_CONFIRM_HOURS = 48
 
 CORS = {
@@ -93,7 +94,11 @@ def handler(event: dict, context) -> dict:
                 return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нельзя купить свой букет"})}
 
             amount = float(b[2])
-            commission = round(amount * COMMISSION)  # округление до целых рублей
+            # Из суммы вычитаем комиссию ЮКассы, затем берём комиссию платформы от остатка
+            yookassa_fee = round(amount * YOOKASSA_FEE, 2)
+            net_after_yookassa = round(amount - yookassa_fee, 2)
+            platform_commission = round(net_after_yookassa * COMMISSION, 2)
+            commission = round(yookassa_fee + platform_commission, 2)  # итоговая комиссия в заказе
 
             with conn.cursor() as cur:
                 # Проверяем нет ли уже заказа

@@ -8,6 +8,8 @@ from email.mime.multipart import MIMEMultipart
 import psycopg2
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p84229990_flower_resale_auctio")
+COMMISSION = 0.15
+YOOKASSA_FEE = 0.055
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -74,7 +76,10 @@ def finalize_expired_auctions(conn):
                 cur.execute(f"SELECT id FROM {SCHEMA}.orders WHERE bouquet_id = %s", (bid,))
                 if not cur.fetchone():
                     amount = float(price)
-                    commission = round(amount * 0.15)  # 15%, округление до целых
+                    yookassa_fee = round(amount * YOOKASSA_FEE, 2)
+                    net_after_yookassa = round(amount - yookassa_fee, 2)
+                    platform_commission = round(net_after_yookassa * COMMISSION, 2)
+                    commission = round(yookassa_fee + platform_commission, 2)
                     cur.execute(
                         f"INSERT INTO {SCHEMA}.orders (bouquet_id, buyer_id, seller_id, amount, commission, escrow_status) "
                         f"VALUES (%s, %s, %s, %s, %s, 'waiting_payment')",

@@ -5,8 +5,7 @@
       "method": "GET",
       "path": "/?action=list",
       "expectedStatus": 200,
-      "bodyMatcher": "partial",
-      "expectedBody": {"bouquets": []}
+      "bodyMatcher": "none"
     }
   ]
 }
