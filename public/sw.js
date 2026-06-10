@@ -1,4 +1,4 @@
-const CACHE_NAME = 'flowerflip-v6';
+const CACHE_NAME = 'flowerflip-v7';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -15,7 +15,13 @@ self.addEventListener('activate', (event) => {
 
 // Network-first — обязательный fetch-обработчик для установки PWA
 self.addEventListener('fetch', (event) => {
-  event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+  const url = event.request.url;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+  event.respondWith(
+    fetch(event.request).catch(() =>
+      caches.match(event.request).then(r => r || new Response('', { status: 503 }))
+    )
+  );
 });
 
 self.addEventListener('push', (event) => {
