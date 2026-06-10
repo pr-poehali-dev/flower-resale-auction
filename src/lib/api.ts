@@ -99,6 +99,7 @@ export const bouquetsApi = {
     if (params?.district) qs.set("district", params.district);
     return req(`${URLS.bouquets}/?${qs}`);
   },
+  flowers: () => req(`${URLS.bouquets}/?action=flowers`),
   detail: (id: number) => req(`${URLS.bouquets}/?action=detail&id=${id}`),
   create: (data: {
     title: string; description?: string; flowers: string[];

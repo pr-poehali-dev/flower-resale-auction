@@ -139,6 +139,17 @@ def handler(event: dict, context) -> dict:
         finalize_expired_auctions(conn)
         user = get_user_by_token(conn, token)
 
+        # GET flowers — уникальные цветы из активных букетов
+        if action == "flowers":
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT DISTINCT lower(trim(f)) FROM {SCHEMA}.bouquets b, unnest(b.flowers) f "
+                    f"WHERE b.status IN ('active','won') ORDER BY 1 LIMIT 100"
+                )
+                rows = cur.fetchall()
+            flowers = [r[0] for r in rows if r[0]]
+            return {"statusCode": 200, "headers": CORS, "body": json.dumps({"flowers": flowers})}
+
         # GET list — активные аукционы
         if action == "list":
             status = qs.get("status", "active")
@@ -150,8 +161,9 @@ def handler(event: dict, context) -> dict:
             params = [status]
 
             if tag and tag != "все":
-                conditions.append(f"%s = ANY(b.flowers)")
-                params.append(tag)
+                # ILIKE ANY — регистронезависимый поиск по подстроке в массиве цветов
+                conditions.append(f"EXISTS (SELECT 1 FROM unnest(b.flowers) f WHERE f ILIKE %s)")
+                params.append(f"%{tag}%")
             if max_price:
                 conditions.append(f"b.current_price <= %s")
                 params.append(float(max_price))

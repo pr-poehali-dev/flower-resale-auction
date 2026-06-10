@@ -1006,6 +1006,13 @@ function CatalogScreen({ user }: { user: User | null }) {
   const [search, setSearch] = useState("");
   const [city, setCity] = useState(user?.city || "");
   const [district, setDistrict] = useState("");
+  const [flowerTags, setFlowerTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    bouquetsApi.flowers().then(r => {
+      if (r.ok && r.data.flowers?.length) setFlowerTags(r.data.flowers);
+    });
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -1041,9 +1048,9 @@ function CatalogScreen({ user }: { user: User | null }) {
         {search && <button onClick={() => setSearch("")}><Icon name="X" size={14} className="text-white/30" /></button>}
       </div>
       <div className="flex gap-2 overflow-x-auto pb-2 mb-4" style={{ scrollbarWidth: "none" }}>
-        {ALL_TAGS.map(t => (
+        {["все", ...flowerTags].map(t => (
           <button key={t} onClick={() => setActiveTag(t)}
-            className="flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-all"
+            className="flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-all capitalize"
             style={activeTag === t ? { background: "var(--grad-main)", color: "#fff" } : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.5)" }}>
             {t}
           </button>
