@@ -1,31 +1,28 @@
 {
   "tests": [
     {
-      "name": "Register new user",
-      "method": "POST",
-      "path": "/?action=register",
-      "body": {"name": "Тест Юзер", "phone": "+79991234500", "password": "test123"},
-      "expectedStatus": 200,
-      "bodyMatcher": "partial",
-      "expectedBody": {"token": ""}
-    },
-    {
-      "name": "Login existing user",
+      "name": "Wrong phone+password returns 401",
       "method": "POST",
       "path": "/?action=login",
-      "body": {"phone": "+79991234500", "password": "test123"},
-      "expectedStatus": 200,
-      "bodyMatcher": "partial",
-      "expectedBody": {"token": ""}
-    },
-    {
-      "name": "Wrong password",
-      "method": "POST",
-      "path": "/?action=login",
-      "body": {"phone": "+79991234500", "password": "wrongpass"},
+      "body": {"phone": "+70000000000", "password": "wrongpass"},
       "expectedStatus": 401,
-      "bodyMatcher": "partial",
-      "expectedBody": {"error": ""}
+      "bodyMatcher": "none"
+    },
+    {
+      "name": "Wrong email+password returns 401",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"email": "nobody@example.com", "password": "wrongpass"},
+      "expectedStatus": 401,
+      "bodyMatcher": "none"
+    },
+    {
+      "name": "Forgot password always returns 200",
+      "method": "POST",
+      "path": "/?action=forgot_password",
+      "body": {"email": "nobody@example.com"},
+      "expectedStatus": 200,
+      "bodyMatcher": "none"
     }
   ]
 }

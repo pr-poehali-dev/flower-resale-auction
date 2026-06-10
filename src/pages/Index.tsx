@@ -243,9 +243,10 @@ function InstallBanner() {
 
 /* ─── AUTH SCREEN ────────────────────────────────────────── */
 function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [loginInput, setLoginInput] = useState(""); // телефон или email при входе
   const [password, setPassword] = useState("");
   const [city, setCity] = useState("");
   const [cityInput, setCityInput] = useState("");
@@ -255,6 +256,8 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
     const p = new URLSearchParams(window.location.search);
     return p.get("ref") || "";
   });
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
@@ -383,9 +386,16 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
 
   const submit = async () => {
     setError(""); setLoading(true);
+    if (mode === "forgot") {
+      const r = await authApi.forgotPassword(forgotEmail);
+      setLoading(false);
+      if (r.ok) setForgotSent(true);
+      else setError(r.data.error || "Ошибка");
+      return;
+    }
     const r = mode === "login"
-      ? await authApi.login(phone, password)
-      : await authApi.register(name, phone, password, city || cityInput, regEmail || undefined, regRefCode || undefined);
+      ? await authApi.login(loginInput, password)
+      : await authApi.register(name, phone, password, city || cityInput, regEmail, regRefCode || undefined);
     setLoading(false);
     if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
     await finishOAuth(r.data.token);
@@ -499,99 +509,164 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
           )}
 
           {/* Переключатель режима */}
-          <div className="flex gap-2 mb-4">
-            {(["login", "register"] as const).map(m => (
-              <button key={m} onClick={() => setMode(m)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all"
-                style={mode === m
-                  ? { background: "var(--grad-main)", color: "#fff" }
-                  : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
-                {m === "login" ? "Войти" : "Регистрация"}
-              </button>
-            ))}
-          </div>
-
-          {/* Форма */}
-          <div className="space-y-3">
-            {mode === "register" && (
-              <>
-                <div>
-                  <label className="text-white/50 text-sm mb-1.5 block">Имя</label>
-                  <input value={name} onChange={e => setName(e.target.value)}
-                    className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
-                    placeholder="Ваше имя" />
-                </div>
-                <div className="relative">
-                  <label className="text-white/50 text-sm mb-1.5 block">Город</label>
-                  <div className="glass rounded-xl px-4 py-3 flex items-center gap-2">
-                    <Icon name="MapPin" size={16} className="text-white/30 flex-shrink-0" />
-                    <input value={cityInput}
-                      onChange={e => { setCityInput(e.target.value); setCity(""); setShowCitySuggest(true); }}
-                      onFocus={() => setShowCitySuggest(true)}
-                      onBlur={() => setTimeout(() => setShowCitySuggest(false), 150)}
-                      className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none"
-                      placeholder="Начните вводить город..." />
-                    {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
-                  </div>
-                  {showCitySuggest && citySuggestions.length > 0 && (
-                    <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#150f1c", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 260, backdropFilter: "blur(12px)" }}>
-                      {citySuggestions.map(c => (
-                        <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
-                          className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-pink-500/20 transition-colors border-b border-white/5 last:border-0">
-                          {c}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-            <div>
-              <label className="text-white/50 text-sm mb-1.5 block">Телефон</label>
-              <input value={phone} onChange={e => setPhone(e.target.value)} type="tel"
-                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
-                placeholder="+7 999 000 00 00" />
-            </div>
-            <div>
-              <label className="text-white/50 text-sm mb-1.5 block">Пароль</label>
-              <input value={password} onChange={e => setPassword(e.target.value)} type="password"
-                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
-                placeholder="••••••••" />
-            </div>
-            <div>
-              <label className="text-white/50 text-sm mb-1.5 block">
-                Email <span className="text-white/25 text-xs font-normal">(необязательно)</span>
-              </label>
-              <input value={regEmail} onChange={e => setRegEmail(e.target.value)} type="email"
-                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
-                placeholder="your@email.com" />
-            </div>
-            <div>
-              <label className="text-white/50 text-sm mb-1.5 block">
-                Реферальный код <span className="text-white/25 text-xs font-normal">(если есть)</span>
-              </label>
-              <input value={regRefCode} onChange={e => setRegRefCode(e.target.value.toUpperCase())} type="text"
-                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-purple-500 font-mono tracking-widest"
-                placeholder="ABCD1234" maxLength={8} onKeyDown={e => e.key === "Enter" && submit()} />
-            </div>
-          </div>
-
-          {error && (
-            <div className="mt-3 px-3 py-2.5 rounded-xl text-sm text-red-400 text-center"
-              style={{ background: "rgba(255,61,61,0.1)", border: "1px solid rgba(255,61,61,0.2)" }}>
-              {error}
+          {mode !== "forgot" && (
+            <div className="flex gap-2 mb-4">
+              {(["login", "register"] as const).map(m => (
+                <button key={m} onClick={() => { setMode(m); setError(""); }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all"
+                  style={mode === m
+                    ? { background: "var(--grad-main)", color: "#fff" }
+                    : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
+                  {m === "login" ? "Войти" : "Регистрация"}
+                </button>
+              ))}
             </div>
           )}
 
-          <button onClick={submit} disabled={loading}
-            className="btn-gradient w-full rounded-2xl py-4 mt-4 font-oswald text-lg tracking-wide disabled:opacity-50">
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <div className="animate-spin rounded-full w-5 h-5 border-2 border-white border-t-transparent" />
-                Входим...
-              </span>
-            ) : mode === "login" ? "ВОЙТИ" : "СОЗДАТЬ АККАУНТ"}
-          </button>
+          {/* Форма восстановления пароля */}
+          {mode === "forgot" && (
+            <div className="space-y-3">
+              <button onClick={() => { setMode("login"); setError(""); setForgotSent(false); }}
+                className="flex items-center gap-2 text-white/40 text-sm hover:text-white/60 transition-colors mb-2">
+                <Icon name="ArrowLeft" size={14} /> Назад
+              </button>
+              <h3 className="font-oswald text-xl text-white mb-1">Восстановление пароля</h3>
+              {forgotSent ? (
+                <div className="text-center py-4">
+                  <span className="text-4xl block mb-3">📬</span>
+                  <p className="text-white/70 text-sm">Письмо отправлено! Проверьте почту и перейдите по ссылке для сброса пароля.</p>
+                  <button onClick={() => { setMode("login"); setForgotSent(false); setError(""); }}
+                    className="btn-gradient w-full rounded-2xl py-3 mt-4 font-oswald tracking-wide">
+                    ВОЙТИ
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-white/40 text-sm">Укажите email — отправим ссылку для сброса пароля</p>
+                  <input value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} type="email"
+                    className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                    placeholder="your@email.com" onKeyDown={e => e.key === "Enter" && submit()} />
+                  {error && (
+                    <div className="px-3 py-2.5 rounded-xl text-sm text-red-400 text-center"
+                      style={{ background: "rgba(255,61,61,0.1)", border: "1px solid rgba(255,61,61,0.2)" }}>
+                      {error}
+                    </div>
+                  )}
+                  <button onClick={submit} disabled={loading}
+                    className="btn-gradient w-full rounded-2xl py-4 font-oswald text-lg tracking-wide disabled:opacity-50">
+                    {loading ? "Отправляем..." : "ОТПРАВИТЬ ССЫЛКУ"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Основная форма входа/регистрации */}
+          {mode !== "forgot" && (
+            <>
+              <div className="space-y-3">
+                {mode === "register" && (
+                  <>
+                    <div>
+                      <label className="text-white/50 text-sm mb-1.5 block">Имя</label>
+                      <input value={name} onChange={e => setName(e.target.value)}
+                        className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                        placeholder="Ваше имя" />
+                    </div>
+                    <div className="relative">
+                      <label className="text-white/50 text-sm mb-1.5 block">Город</label>
+                      <div className="glass rounded-xl px-4 py-3 flex items-center gap-2">
+                        <Icon name="MapPin" size={16} className="text-white/30 flex-shrink-0" />
+                        <input value={cityInput}
+                          onChange={e => { setCityInput(e.target.value); setCity(""); setShowCitySuggest(true); }}
+                          onFocus={() => setShowCitySuggest(true)}
+                          onBlur={() => setTimeout(() => setShowCitySuggest(false), 150)}
+                          className="flex-1 bg-transparent text-white placeholder:text-white/30 text-sm outline-none"
+                          placeholder="Начните вводить город..." />
+                        {city && <Icon name="CheckCircle2" size={14} className="text-green-400 flex-shrink-0" />}
+                      </div>
+                      {showCitySuggest && citySuggestions.length > 0 && (
+                        <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl overflow-y-auto shadow-2xl" style={{ background: "#150f1c", border: "1px solid rgba(255,255,255,0.1)", maxHeight: 260, backdropFilter: "blur(12px)" }}>
+                          {citySuggestions.map(c => (
+                            <button key={c} onMouseDown={() => { setCity(c); setCityInput(c); setShowCitySuggest(false); }}
+                              className="w-full text-left px-4 py-2.5 text-sm text-white/80 hover:bg-pink-500/20 transition-colors border-b border-white/5 last:border-0">
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {mode === "login" ? (
+                  <div>
+                    <label className="text-white/50 text-sm mb-1.5 block">Телефон или Email</label>
+                    <input value={loginInput} onChange={e => setLoginInput(e.target.value)}
+                      className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                      placeholder="+7 999 000 00 00 или email" />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-white/50 text-sm mb-1.5 block">Телефон</label>
+                      <input value={phone} onChange={e => setPhone(e.target.value)} type="tel"
+                        className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                        placeholder="+7 999 000 00 00" />
+                    </div>
+                    <div>
+                      <label className="text-white/50 text-sm mb-1.5 block">Email</label>
+                      <input value={regEmail} onChange={e => setRegEmail(e.target.value)} type="email"
+                        className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                        placeholder="your@email.com" />
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="text-white/50 text-sm mb-1.5 block">Пароль</label>
+                  <input value={password} onChange={e => setPassword(e.target.value)} type="password"
+                    className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                    placeholder="••••••••" onKeyDown={e => e.key === "Enter" && submit()} />
+                </div>
+
+                {mode === "register" && (
+                  <div>
+                    <label className="text-white/50 text-sm mb-1.5 block">
+                      Реферальный код <span className="text-white/25 text-xs font-normal">(если есть)</span>
+                    </label>
+                    <input value={regRefCode} onChange={e => setRegRefCode(e.target.value.toUpperCase())} type="text"
+                      className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-purple-500 font-mono tracking-widest"
+                      placeholder="ABCD1234" maxLength={8} />
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="mt-3 px-3 py-2.5 rounded-xl text-sm text-red-400 text-center"
+                  style={{ background: "rgba(255,61,61,0.1)", border: "1px solid rgba(255,61,61,0.2)" }}>
+                  {error}
+                </div>
+              )}
+
+              <button onClick={submit} disabled={loading}
+                className="btn-gradient w-full rounded-2xl py-4 mt-4 font-oswald text-lg tracking-wide disabled:opacity-50">
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full w-5 h-5 border-2 border-white border-t-transparent" />
+                    {mode === "login" ? "Входим..." : "Создаём..."}
+                  </span>
+                ) : mode === "login" ? "ВОЙТИ" : "СОЗДАТЬ АККАУНТ"}
+              </button>
+
+              {mode === "login" && (
+                <button onClick={() => { setMode("forgot"); setError(""); setForgotEmail(loginInput.includes("@") ? loginInput : ""); }}
+                  className="w-full text-center text-white/30 text-xs mt-2 hover:text-white/50 transition-colors py-1">
+                  Забыли пароль?
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {/* Дисклеймер */}
@@ -1280,6 +1355,10 @@ function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?:
   const [msg, setMsg] = useState("");
   const [disputeText, setDisputeText] = useState("");
   const [showDispute, setShowDispute] = useState(false);
+  const [reviewModal, setReviewModal] = useState<{ deal: Deal } | null>(null);
+  const [reviewStars, setReviewStars] = useState(5);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [dealMessages, setDealMessages] = useState<Message[]>([]);
   const [dealChatText, setDealChatText] = useState("");
   const [dealChatSending, setDealChatSending] = useState(false);
@@ -1341,8 +1420,21 @@ function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?:
     setActionLoading(true); setMsg("");
     const r = await escrowApi.confirm(deal.id);
     setActionLoading(false);
-    setMsg(r.ok ? r.data.message : r.data.error);
-    if (r.ok) load();
+    if (r.ok) {
+      await load();
+      setActive(null);
+      setReviewStars(5); setReviewText("");
+      setReviewModal({ deal });
+    } else setMsg(r.data.error);
+  };
+
+  const submitReview = async () => {
+    if (!reviewModal) return;
+    setReviewLoading(true);
+    const targetId = reviewModal.deal.is_buyer ? reviewModal.deal.seller_id : reviewModal.deal.buyer_id;
+    await profileApi.addReview(targetId, reviewStars, reviewText, reviewModal.deal.id);
+    setReviewLoading(false);
+    setReviewModal(null);
   };
 
   const doDispute = async (deal: Deal) => {
@@ -1358,6 +1450,37 @@ function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?:
     <div className="text-center py-20">
       <span className="text-5xl block mb-4">🤝</span>
       <p className="text-white/50 font-oswald text-xl">Войдите, чтобы видеть сделки</p>
+    </div>
+  );
+
+  /* ── МОДАЛ ОТЗЫВА ── */
+  if (reviewModal) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in-up">
+      <div className="glass-strong rounded-3xl p-6 w-full max-w-sm">
+        <div className="text-center mb-5">
+          <span className="text-5xl block mb-2">🌸</span>
+          <h3 className="font-oswald text-2xl text-white mb-1">Сделка завершена!</h3>
+          <p className="text-white/50 text-sm">Оставьте отзыв о {reviewModal.deal.is_buyer ? "продавце" : "покупателе"}</p>
+        </div>
+        <div className="flex justify-center gap-2 mb-4">
+          {[1,2,3,4,5].map(s => (
+            <button key={s} onClick={() => setReviewStars(s)}
+              className="text-3xl transition-transform hover:scale-110"
+              style={{ opacity: s <= reviewStars ? 1 : 0.25 }}>⭐</button>
+          ))}
+        </div>
+        <textarea value={reviewText} onChange={e => setReviewText(e.target.value)}
+          className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none resize-none mb-4"
+          rows={3} placeholder="Расскажите о сделке..." />
+        <button onClick={submitReview} disabled={reviewLoading}
+          className="btn-gradient w-full rounded-2xl py-3 font-oswald text-base tracking-wide disabled:opacity-50 mb-2">
+          {reviewLoading ? "Отправляем..." : "ОТПРАВИТЬ ОТЗЫВ"}
+        </button>
+        <button onClick={() => setReviewModal(null)}
+          className="w-full text-white/30 text-sm py-2 hover:text-white/50 transition-colors">
+          Пропустить
+        </button>
+      </div>
     </div>
   );
 
@@ -1749,17 +1872,15 @@ function ChatWindow({ chat, user, onBack }: { chat: Chat; user: User; onBack: ()
 }
 
 /* ─── PROFILE SCREEN ─────────────────────────────────────── */
-function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onLogout: () => void; onStartTour?: () => void }) {
-  const [tab, setTab] = useState<"about" | "reviews" | "chat" | "referral">("about");
+function ProfileScreen({ user, onLogout, onUpdate, onStartTour }: { user: User | null; onLogout: () => void; onUpdate?: () => void; onStartTour?: () => void }) {
+  const [tab, setTab] = useState<"about" | "reviews" | "referral" | "settings">("about");
   const [copied, setCopied] = useState(false);
 
   const copyRef = (text: string) => {
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   };
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [chats, setChats] = useState<Chat[]>([]);
   const [sales, setSales] = useState<{ id: number; title: string; current_price: number; status: string; bids_count: number }[]>([]);
-  const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawMsg, setWithdrawMsg] = useState("");
   const [payoutMethod, setPayoutMethod] = useState(user?.payout_method || "card");
@@ -1768,6 +1889,19 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
   const [withdrawals, setWithdrawals] = useState<{ id: number; amount: number; method: string; details: string; status: string; admin_comment?: string; created_at: string }[]>([]);
   const { isIos, isStandalone, canInstall, promptInstall } = usePwaInstall();
   const [showIosGuide, setShowIosGuide] = useState(false);
+
+  // Настройки профиля
+  const [settingsName, setSettingsName] = useState(user?.name || "");
+  const [settingsPhone, setSettingsPhone] = useState(user?.phone || "");
+  const [settingsEmail, setSettingsEmail] = useState(user?.email || "");
+  const [settingsMsg, setSettingsMsg] = useState("");
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [pwdMsg, setPwdMsg] = useState("");
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const installApp = async () => {
     const res = await promptInstall();
@@ -1809,10 +1943,41 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
     else { setCancelMsg(r.data.error || "Ошибка"); }
   };
 
+  const saveSettings = async () => {
+    setSettingsSaving(true); setSettingsMsg("");
+    const updates: Record<string, string> = {};
+    if (settingsName.trim() && settingsName !== user?.name) updates.name = settingsName.trim();
+    if (settingsPhone.trim() && settingsPhone !== user?.phone) updates.phone = settingsPhone.trim();
+    if (settingsEmail.trim() && settingsEmail !== user?.email) updates.email = settingsEmail.trim();
+    if (Object.keys(updates).length === 0) { setSettingsSaving(false); setSettingsMsg("Нет изменений"); return; }
+    const r = await authApi.update(updates);
+    setSettingsSaving(false);
+    if (r.ok) { setSettingsMsg(r.data.email_sent ? "Сохранено. Проверьте почту для подтверждения email" : "Сохранено!"); onUpdate?.(); }
+    else setSettingsMsg(r.data.error || "Ошибка");
+  };
+
+  const uploadAvatar = async (file: File) => {
+    setAvatarUploading(true);
+    const r = await uploadApi.upload(file);
+    if (r.ok) {
+      const r2 = await authApi.update({ avatar_url: r.data.url });
+      if (r2.ok) onUpdate?.();
+    }
+    setAvatarUploading(false);
+  };
+
+  const changePassword = async () => {
+    if (!oldPassword || !newPassword) { setPwdMsg("Заполните оба поля"); return; }
+    setPwdSaving(true); setPwdMsg("");
+    const r = await authApi.changePassword(oldPassword, newPassword);
+    setPwdSaving(false);
+    if (r.ok) { setPwdMsg("Пароль изменён!"); setOldPassword(""); setNewPassword(""); }
+    else setPwdMsg(r.data.error || "Ошибка");
+  };
+
   useEffect(() => {
     if (!user) return;
     if (tab === "reviews") profileApi.reviews().then(r => { if (r.ok) setReviews(r.data.reviews); });
-    if (tab === "chat") profileApi.chats().then(r => { if (r.ok) setChats(r.data.chats); });
     if (tab === "about") { loadSales(); loadWithdrawals(); }
   }, [tab, user, loadSales, loadWithdrawals]);
 
@@ -1823,7 +1988,7 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
     </div>
   );
 
-  if (activeChat) return <ChatWindow chat={activeChat} user={user} onBack={() => setActiveChat(null)} />;
+
 
   const savePayout = async () => {
     if (!payoutDetails.trim()) { setPayoutSaved("Укажите реквизиты"); return; }
@@ -1900,10 +2065,10 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
         </div>
       </div>
 
-      <div className="flex gap-2 mb-4">
-        {([["about", "Кабинет"], ["reviews", "Отзывы"], ["chat", "Чаты"], ["referral", "Рефералы"]] as const).map(([k, l]) => (
+      <div className="flex gap-1.5 mb-4">
+        {([["about", "Кабинет"], ["reviews", "Отзывы"], ["referral", "Рефералы"], ["settings", "Настройки"]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k as typeof tab)}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all"
+            className="flex-1 py-2.5 rounded-xl text-xs font-medium transition-all"
             style={tab === k ? { background: "var(--grad-main)", color: "#fff" } : { background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
             {l}
           </button>
@@ -2280,27 +2445,107 @@ function ProfileScreen({ user, onLogout, onStartTour }: { user: User | null; onL
         </div>
       )}
 
-      {tab === "chat" && (
-        <div className="space-y-2 animate-fade-in-up">
-          {chats.length === 0 ? (
-            <div className="text-center py-12 text-white/30"><span className="text-4xl block mb-3">💬</span><p>Нет активных чатов</p></div>
-          ) : chats.map((c, i) => (
-            <div key={i} onClick={() => setActiveChat(c)}
-              className="glass rounded-2xl p-4 flex items-center gap-3 card-hover cursor-pointer">
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ background: "var(--grad-main)" }}>{c.other_name[0]}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <p className="text-white font-medium text-sm">{c.other_name}</p>
-                  <span className="text-white/30 text-xs">{timeAgo(c.created_at)}</span>
-                </div>
-                <p className="text-white/40 text-xs truncate mt-0.5">{c.last_message}</p>
+      {tab === "settings" && (
+        <div className="space-y-4 animate-fade-in-up">
+
+          {/* Аватар */}
+          <div className="glass rounded-2xl p-4">
+            <p className="text-white/50 text-sm font-medium mb-3">Фото профиля</p>
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 flex items-center justify-center text-3xl"
+                style={{ background: user.avatar_url ? "transparent" : "var(--grad-main)" }}>
+                {user.avatar_url
+                  ? <img src={user.avatar_url} className="w-full h-full object-cover" />
+                  : "🌸"}
               </div>
-              {c.unread > 0 && (
-                <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                  style={{ background: "var(--neon-pink)" }}>{c.unread}</div>
+              <div className="flex-1">
+                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => e.target.files?.[0] && uploadAvatar(e.target.files[0])} />
+                <button onClick={() => avatarInputRef.current?.click()} disabled={avatarUploading}
+                  className="btn-gradient px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-2">
+                  <Icon name={avatarUploading ? "Loader2" : "Camera"} size={14} className={avatarUploading ? "animate-spin" : ""} />
+                  {avatarUploading ? "Загружаем..." : "Изменить фото"}
+                </button>
+                {user.avatar_url && (
+                  <button onClick={async () => { await authApi.update({ avatar_url: null }); onUpdate?.(); }}
+                    className="block mt-1.5 text-xs text-white/30 hover:text-red-400 transition-colors">
+                    Удалить фото
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Основные данные */}
+          <div className="glass rounded-2xl p-4 space-y-3">
+            <p className="text-white/50 text-sm font-medium">Личные данные</p>
+            <div>
+              <label className="text-white/40 text-xs mb-1 block">Имя</label>
+              <input value={settingsName} onChange={e => setSettingsName(e.target.value)}
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                placeholder="Ваше имя" />
+            </div>
+            <div>
+              <label className="text-white/40 text-xs mb-1 block">Телефон</label>
+              <input value={settingsPhone} onChange={e => setSettingsPhone(e.target.value)} type="tel"
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                placeholder="+7 999 000 00 00" />
+            </div>
+            <div>
+              <label className="text-white/40 text-xs mb-1 block flex items-center gap-2">
+                Email
+                {user.email_verified
+                  ? <span className="text-green-400 text-xs">✓ подтверждён</span>
+                  : user.email ? <span className="text-yellow-400 text-xs">не подтверждён</span> : null}
+              </label>
+              <input value={settingsEmail} onChange={e => setSettingsEmail(e.target.value)} type="email"
+                className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+                placeholder="your@email.com" />
+              {user.email && !user.email_verified && (
+                <button onClick={resendVerify} className="mt-1.5 text-xs text-pink-400 hover:text-pink-300 transition-colors">
+                  Отправить письмо повторно
+                </button>
               )}
             </div>
-          ))}
+            {settingsMsg && (
+              <p className={`text-xs ${settingsMsg.includes("Ошибка") || settingsMsg.includes("занят") ? "text-red-400" : "text-green-400"}`}>
+                {settingsMsg}
+              </p>
+            )}
+            {emailMsg && <p className="text-xs text-green-400">{emailMsg}</p>}
+            <button onClick={saveSettings} disabled={settingsSaving}
+              className="btn-gradient w-full rounded-xl py-3 text-sm font-medium disabled:opacity-50">
+              {settingsSaving ? "Сохраняем..." : "Сохранить изменения"}
+            </button>
+          </div>
+
+          {/* Смена пароля */}
+          <div className="glass rounded-2xl p-4 space-y-3">
+            <p className="text-white/50 text-sm font-medium">Сменить пароль</p>
+            <input value={oldPassword} onChange={e => setOldPassword(e.target.value)} type="password"
+              className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+              placeholder="Текущий пароль" />
+            <input value={newPassword} onChange={e => setNewPassword(e.target.value)} type="password"
+              className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+              placeholder="Новый пароль" />
+            {pwdMsg && (
+              <p className={`text-xs ${pwdMsg.includes("Ошибка") || pwdMsg.includes("Неверный") ? "text-red-400" : "text-green-400"}`}>
+                {pwdMsg}
+              </p>
+            )}
+            <button onClick={changePassword} disabled={pwdSaving}
+              className="btn-gradient w-full rounded-xl py-3 text-sm font-medium disabled:opacity-50">
+              {pwdSaving ? "Меняем..." : "Изменить пароль"}
+            </button>
+          </div>
+
+          {/* Выход */}
+          <button onClick={onLogout}
+            className="w-full glass rounded-2xl py-3 text-sm font-medium flex items-center justify-center gap-2"
+            style={{ color: "rgba(255,100,100,0.7)", border: "1px solid rgba(255,100,100,0.15)" }}>
+            <Icon name="LogOut" size={15} />
+            Выйти из аккаунта
+          </button>
         </div>
       )}
     </div>
@@ -2460,7 +2705,7 @@ export default function Index() {
     if (user && authChecked) triggerIfNew();
   }, [user, authChecked, triggerIfNew]);
 
-  // Обработка подтверждения email по ссылке (?verify_email=TOKEN)
+  // Обработка подтверждения email (?verify_email=TOKEN)
   const [verifyMsg, setVerifyMsg] = useState("");
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -2468,10 +2713,33 @@ export default function Index() {
     if (!vtoken) return;
     authApi.verifyEmail(vtoken).then(r => {
       setVerifyMsg(r.ok ? "✅ Email подтверждён!" : (r.data.error || "Ссылка недействительна"));
-      // Убираем параметр из URL
       window.history.replaceState({}, "", window.location.pathname);
     });
   }, []);
+
+  // Сброс пароля (?reset_password=TOKEN)
+  const [resetToken, setResetToken] = useState("");
+  const [resetPwd, setResetPwd] = useState("");
+  const [resetPwd2, setResetPwd2] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const rtoken = params.get("reset_password");
+    if (!rtoken) return;
+    setResetToken(rtoken);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  const doResetPassword = async () => {
+    if (!resetPwd || resetPwd !== resetPwd2) { setResetMsg("Пароли не совпадают"); return; }
+    setResetLoading(true); setResetMsg("");
+    const r = await authApi.resetPassword(resetToken, resetPwd);
+    setResetLoading(false);
+    if (r.ok) { setResetDone(true); setResetToken(""); }
+    else setResetMsg(r.data.error || "Ссылка устарела");
+  };
 
   const refreshUser = useCallback(() => {
     authApi.me().then(r => { if (r.ok) setUser(r.data.user); });
@@ -2491,6 +2759,48 @@ export default function Index() {
   if (!authChecked) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(var(--background))" }}>
       <div className="animate-float text-4xl">🌸</div>
+    </div>
+  );
+
+  // Модал сброса пароля (переход по ссылке из письма)
+  if (resetToken) return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "hsl(var(--background))" }}>
+      <div className="w-full max-w-sm animate-fade-in-up">
+        <div className="text-center mb-6">
+          <span className="text-5xl block mb-3">🔑</span>
+          <h2 className="font-oswald text-2xl font-bold text-white">Новый пароль</h2>
+          <p className="text-white/40 text-sm mt-1">Придумайте надёжный пароль</p>
+        </div>
+        <div className="glass-strong rounded-3xl p-5 space-y-3">
+          <input value={resetPwd} onChange={e => setResetPwd(e.target.value)} type="password"
+            className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+            placeholder="Новый пароль" />
+          <input value={resetPwd2} onChange={e => setResetPwd2(e.target.value)} type="password"
+            className="glass w-full rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm outline-none focus:ring-1 focus:ring-pink-500"
+            placeholder="Повторите пароль" onKeyDown={e => e.key === "Enter" && doResetPassword()} />
+          {resetMsg && (
+            <p className="text-red-400 text-sm text-center">{resetMsg}</p>
+          )}
+          <button onClick={doResetPassword} disabled={resetLoading}
+            className="btn-gradient w-full rounded-2xl py-4 font-oswald text-lg tracking-wide disabled:opacity-50">
+            {resetLoading ? "Сохраняем..." : "СОХРАНИТЬ ПАРОЛЬ"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (resetDone) return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "hsl(var(--background))" }}>
+      <div className="text-center animate-fade-in-up">
+        <span className="text-6xl block mb-4">✅</span>
+        <h2 className="font-oswald text-2xl font-bold text-white mb-2">Пароль изменён!</h2>
+        <p className="text-white/40 text-sm mb-6">Теперь войдите с новым паролем</p>
+        <button onClick={() => setResetDone(false)}
+          className="btn-gradient px-8 py-3 rounded-2xl font-oswald text-lg tracking-wide">
+          ВОЙТИ
+        </button>
+      </div>
     </div>
   );
 
@@ -2538,7 +2848,7 @@ export default function Index() {
         {activeTab === "catalog" && <CatalogScreen user={user} />}
         {activeTab === "sell" && <SellScreen user={user} />}
         {activeTab === "deals" && <DealsScreen user={user} onPaySuccess={refreshUser} />}
-        {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} onStartTour={startOnboarding} />}
+        {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} onUpdate={refreshUser} onStartTour={startOnboarding} />}
         {activeTab === "admin" && <AdminScreen user={user} />}
       </main>
 

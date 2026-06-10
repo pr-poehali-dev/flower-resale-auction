@@ -69,11 +69,17 @@ async function req(url: string, options: RequestInit = {}) {
 export const authApi = {
   register: (name: string, phone: string, password: string, city?: string, email?: string, ref_code?: string) =>
     req(`${URLS.auth}/?action=register`, { method: "POST", body: JSON.stringify({ action: "register", name, phone, password, city, email, ref_code }) }),
-  login: (phone: string, password: string) =>
-    req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ action: "login", phone, password }) }),
+  login: (login: string, password: string) =>
+    req(`${URLS.auth}/?action=login`, { method: "POST", body: JSON.stringify({ action: "login", phone: login, email: login, password }) }),
   me: () => req(`${URLS.auth}/?action=me`),
-  update: (data: { name?: string; avatar_url?: string; city?: string; email?: string }) =>
+  update: (data: { name?: string; avatar_url?: string | null; city?: string; email?: string; phone?: string }) =>
     req(`${URLS.auth}/?action=update`, { method: "POST", body: JSON.stringify({ action: "update", ...data }) }),
+  changePassword: (old_password: string, new_password: string) =>
+    req(`${URLS.auth}/?action=change_password`, { method: "POST", body: JSON.stringify({ action: "change_password", old_password, new_password }) }),
+  forgotPassword: (email: string) =>
+    req(`${URLS.auth}/?action=forgot_password`, { method: "POST", body: JSON.stringify({ action: "forgot_password", email }) }),
+  resetPassword: (token: string, password: string) =>
+    req(`${URLS.auth}/?action=reset_password`, { method: "POST", body: JSON.stringify({ action: "reset_password", token, password }) }),
   logout: () => req(`${URLS.auth}/?action=logout`, { method: "POST", body: JSON.stringify({ action: "logout" }) }),
   verifyEmail: (token: string) =>
     req(`${URLS.auth}/?action=verify_email&token=${token}`),
