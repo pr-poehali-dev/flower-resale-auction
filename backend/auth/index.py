@@ -165,13 +165,19 @@ def handler(event: dict, context) -> dict:
             password = body.get("password", "")
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT id, name FROM {SCHEMA}.users "
+                    f"SELECT id, name, email_verified, email FROM {SCHEMA}.users "
                     f"WHERE (phone = %s OR email = %s) AND password_hash = %s",
                     (login_id, login_id, hash_pwd(password))
                 )
                 row = cur.fetchone()
             if not row:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный телефон/email или пароль"})}
+            if not row[2]:
+                return {"statusCode": 403, "headers": CORS, "body": json.dumps({
+                    "error": "Email не подтверждён. Проверьте почту и перейдите по ссылке из письма.",
+                    "email_not_verified": True,
+                    "email": row[3]
+                })}
             tok = make_token()
             with conn.cursor() as cur:
                 cur.execute(f"INSERT INTO {SCHEMA}.sessions (user_id, token) VALUES (%s, %s)", (row[0], tok))
@@ -315,6 +321,29 @@ def handler(event: dict, context) -> dict:
 
         # ── RESEND VERIFY ─────────────────────────────────────────
         if action == "resend_verify" and method == "POST":
+            email_input = (body.get("email") or "").strip().lower()
+            # Если передан email — ищем по нему (для случая когда токена ещё нет)
+            if email_input:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT id, name, email, email_verified FROM {SCHEMA}.users WHERE email = %s",
+                        (email_input,)
+                    )
+                    urow = cur.fetchone()
+                if not urow:
+                    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+                if urow[3]:
+                    return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Email уже подтверждён"})}
+                email_token = make_token()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"UPDATE {SCHEMA}.users SET email_token = %s, email_token_at = NOW() WHERE id = %s",
+                        (email_token, urow[0])
+                    )
+                conn.commit()
+                send_verify_email(urow[2], email_token, urow[1])
+                return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+            # Иначе — по токену авторизации
             if not token:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
             user = get_user_by_token(conn, token)

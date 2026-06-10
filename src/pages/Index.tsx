@@ -262,6 +262,8 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [emailNotVerified, setEmailNotVerified] = useState<string | null>(null);
+  const [resendSent, setResendSent] = useState(false);
   const [needCity, setNeedCity] = useState(false);
   const [pendingToken, setPendingToken] = useState<string | null>(null);
   const vkContainerRef = useRef<HTMLDivElement>(null);
@@ -386,7 +388,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
   }, [finishOAuth]);
 
   const submit = async () => {
-    setError(""); setLoading(true);
+    setError(""); setEmailNotVerified(null); setResendSent(false); setLoading(true);
     if (mode === "forgot") {
       const r = await authApi.forgotPassword(forgotEmail);
       setLoading(false);
@@ -398,8 +400,18 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
       ? await authApi.login(loginInput, password)
       : await authApi.register(name, phone, password, city || cityInput, regEmail, regRefCode || undefined);
     setLoading(false);
-    if (!r.ok) { setError(r.data.error || "Ошибка"); return; }
+    if (!r.ok) {
+      if (r.data.email_not_verified) { setEmailNotVerified(r.data.email || loginInput); return; }
+      setError(r.data.error || "Ошибка"); return;
+    }
     await finishOAuth(r.data.token);
+  };
+
+  const resendVerify = async () => {
+    if (!emailNotVerified) return;
+    setResendSent(false);
+    const r = await authApi.resendVerify(emailNotVerified);
+    if (r.ok) setResendSent(true);
   };
 
 
@@ -649,6 +661,17 @@ function AuthScreen({ onAuth }: { onAuth: (user: User, token: string) => void })
                   {error}
                 </div>
               )}
+              {emailNotVerified && (
+                <div className="mt-3 px-4 py-3 rounded-xl text-sm text-center"
+                  style={{ background: "rgba(255,165,0,0.1)", border: "1px solid rgba(255,165,0,0.3)" }}>
+                  <p className="text-orange-400 font-medium mb-1">📧 Email не подтверждён</p>
+                  <p className="text-white/50 text-xs mb-2">Проверьте почту <b className="text-white/70">{emailNotVerified}</b> и перейдите по ссылке из письма</p>
+                  {resendSent
+                    ? <p className="text-green-400 text-xs">✅ Письмо отправлено повторно</p>
+                    : <button onClick={resendVerify} className="text-xs text-orange-400 underline underline-offset-2">Выслать письмо повторно</button>
+                  }
+                </div>
+              )}
 
               <button onClick={submit} disabled={loading}
                 className="btn-gradient w-full rounded-2xl py-4 mt-4 font-oswald text-lg tracking-wide disabled:opacity-50">
@@ -731,7 +754,14 @@ function BidModal({ bouquet, onClose, onBid }: { bouquet: Bouquet; onClose: () =
             </button>
           ))}
         </div>
-        {error && <p className="text-red-400 text-sm mt-3 text-center">{error}</p>}
+        {error && !error.includes("email") && <p className="text-red-400 text-sm mt-3 text-center">{error}</p>}
+        {error && error.includes("email") && (
+          <div className="mt-3 px-3 py-2.5 rounded-xl text-sm text-center"
+            style={{ background: "rgba(255,165,0,0.1)", border: "1px solid rgba(255,165,0,0.3)" }}>
+            <p className="text-orange-400 font-medium">📧 Подтвердите email</p>
+            <p className="text-white/40 text-xs mt-1">Перейдите по ссылке из письма, затем попробуйте снова</p>
+          </div>
+        )}
         <button onClick={submit} disabled={loading}
           className="btn-gradient w-full rounded-2xl py-4 mt-5 font-oswald text-lg tracking-wide animate-pulse-glow disabled:opacity-50">
           {loading ? "..." : "СДЕЛАТЬ СТАВКУ"}
@@ -1449,7 +1479,10 @@ function DealsScreen({ user, onPaySuccess }: { user: User | null; onPaySuccess?:
         if (updatedDeal) setActive(updatedDeal);
       }
     }
-    else setMsg(r.data.error || "Ошибка оплаты");
+    else {
+      if (r.data.email_not_verified) setMsg("📧 Подтвердите email перед оплатой — проверьте почту и перейдите по ссылке из письма");
+      else setMsg(r.data.error || "Ошибка оплаты");
+    }
   };
 
   const doConfirm = async (deal: Deal) => {

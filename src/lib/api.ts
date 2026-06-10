@@ -83,8 +83,8 @@ export const authApi = {
   logout: () => req(`${URLS.auth}/?action=logout`, { method: "POST", body: JSON.stringify({ action: "logout" }) }),
   verifyEmail: (token: string) =>
     req(`${URLS.auth}/?action=verify_email&token=${token}`),
-  resendVerify: () =>
-    req(`${URLS.auth}/?action=resend_verify`, { method: "POST", body: JSON.stringify({ action: "resend_verify" }) }),
+  resendVerify: (email?: string) =>
+    req(`${URLS.auth}/?action=resend_verify`, { method: "POST", body: JSON.stringify({ action: "resend_verify", ...(email ? { email } : {}) }) }),
 };
 
 // BOUQUETS

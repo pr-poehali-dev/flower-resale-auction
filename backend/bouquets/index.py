@@ -102,12 +102,12 @@ def get_user_by_token(conn, token: str):
         return None
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT u.id, u.name FROM {SCHEMA}.sessions s "
+            f"SELECT u.id, u.name, u.email_verified FROM {SCHEMA}.sessions s "
             f"JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
         row = cur.fetchone()
-    return {"id": row[0], "name": row[1]} if row else None
+    return {"id": row[0], "name": row[1], "email_verified": bool(row[2])} if row else None
 
 def row_to_bouquet(row, cols):
     d = dict(zip(cols, row))
@@ -234,6 +234,8 @@ def handler(event: dict, context) -> dict:
         if action == "create" and method == "POST":
             if not user:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            if not user.get("email_verified"):
+                return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Подтвердите email перед публикацией лота", "email_not_verified": True})}
             title = body.get("title", "").strip()
             flowers = body.get("flowers", [])
             freshness = body.get("freshness", "сегодня")
@@ -266,6 +268,8 @@ def handler(event: dict, context) -> dict:
         if action == "bid" and method == "POST":
             if not user:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            if not user.get("email_verified"):
+                return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Подтвердите email перед тем как делать ставки", "email_not_verified": True})}
             bouquet_id = int(body.get("bouquet_id", 0))
             amount = float(body.get("amount", 0))
             with conn.cursor() as cur:

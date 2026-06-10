@@ -42,14 +42,14 @@ def get_user(conn, token: str):
         return None
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT u.id, u.name, u.phone, u.balance "
+            f"SELECT u.id, u.name, u.phone, u.balance, u.email_verified "
             f"FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id "
             f"WHERE s.token = %s AND s.expires_at > NOW()", (token,)
         )
         row = cur.fetchone()
     if not row:
         return None
-    return {"id": row[0], "name": row[1], "phone": row[2], "balance": float(row[3])}
+    return {"id": row[0], "name": row[1], "phone": row[2], "balance": float(row[3]), "email_verified": bool(row[4])}
 
 def fmt_order(row, cols):
     d = dict(zip(cols, row))
@@ -121,6 +121,8 @@ def handler(event: dict, context) -> dict:
         if action == "pay" and method == "POST":
             if not user:
                 return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+            if not user.get("email_verified"):
+                return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Подтвердите email перед оплатой", "email_not_verified": True})}
             order_id = int(body.get("order_id", 0))
             with conn.cursor() as cur:
                 cur.execute(
