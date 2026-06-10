@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { authApi, bouquetsApi, profileApi, uploadApi, escrowApi, oauthApi, adminApi, paymentApi } from "@/lib/api";
 import { OnboardingTour, useOnboarding } from "@/components/OnboardingTour";
 import { useCities } from "@/lib/cities";
+import Partners from "@/pages/Partners";
 
 /* ─── TYPES ─────────────────────────────────────────────── */
 interface Bouquet {
@@ -2626,6 +2627,12 @@ function AdminScreen({ user }: { user: User | null }) {
   return (
     <div className="animate-fade-in">
       <h2 className="font-oswald text-2xl font-bold text-white mb-4">Админ-панель</h2>
+      <a href="/#partners" onClick={e => { e.preventDefault(); window.location.hash = "partners"; window.location.reload(); }}
+        className="flex items-center gap-2 glass rounded-2xl px-4 py-3 mb-4 text-sm font-medium"
+        style={{ color: "#a855f7", border: "1px solid rgba(168,85,247,0.2)" }}>
+        <Icon name="Presentation" size={16} />
+        Страница для партнёров — скрытая ссылка: {window.location.origin}/#partners
+      </a>
 
       {/* Статистика */}
       {stats && (
@@ -2714,7 +2721,7 @@ function AdminScreen({ user }: { user: User | null }) {
 export default function Index() {
   const [user, setUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [activeTab, setActiveTab] = useState("auctions");
+  const [activeTab, setActiveTab] = useState(window.location.hash === "#partners" ? "partners" : "auctions");
   const [bidModal, setBidModal] = useState<Bouquet | null>(null);
   const { show: showOnboarding, start: startOnboarding, finish: finishOnboarding, triggerIfNew } = useOnboarding();
 
@@ -2832,7 +2839,8 @@ export default function Index() {
     </div>
   );
 
-  if (!user) return <AuthScreen onAuth={handleAuth} />;
+  if (!user && activeTab !== "partners") return <AuthScreen onAuth={handleAuth} />;
+  if (!user && activeTab === "partners") return <Partners />;
 
   return (
     <div className="min-h-screen noise" style={{ background: "hsl(var(--background))" }}>
@@ -2878,6 +2886,7 @@ export default function Index() {
         {activeTab === "deals" && <DealsScreen user={user} onPaySuccess={refreshUser} />}
         {activeTab === "profile" && <ProfileScreen user={user} onLogout={handleLogout} onUpdate={refreshUser} onStartTour={startOnboarding} />}
         {activeTab === "admin" && <AdminScreen user={user} />}
+        {activeTab === "partners" && <Partners />}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-40 glass-strong">
